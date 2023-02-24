@@ -1,0 +1,5 @@
+# Python virtual env
+chess/
+
+# High elo game data
+data/
