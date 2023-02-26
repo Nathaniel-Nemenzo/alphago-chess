@@ -32,11 +32,6 @@ class MoveRepresentation:
         pass
 
 class QueenMovesEncoding:
-    """
-    Implements queen move encoding as defined by [Silver et al., 2017]
-
-    The first 0-55 planes of the (8, 8, 73) tensor correspond to queen moves.
-    """
     def __init__(self):
         self._TYPE_OFFSET = 0
         self._NUM_TYPES = 56
@@ -123,10 +118,46 @@ class KnightMovesEncoding:
         )
 
     def encode(self, move):
-        pass
+        """
+        Encodes the given move as knight move, if possible, else returns None
+        """
+        
+        from_rank, from_file, to_rank, to_file = utils.unpack(move)
+        delta = (to_rank - from_rank, to_file - from_file)
+        is_knight_move = delta in self._DIRECTIONS
+        if not is_knight_move:
+            return None
+        
+        knight_move_type = self._DIRECTIONS.index(delta)
+        move_type = self._TYPE_OFFSET + knight_move_type
+
+        action = np.ravel_multi_index(
+            multi_index = ((from_rank, from_file, move_type)),
+            dims = (8, 8, 73)
+        )
+
+        return action
 
     def decode(self, index):
-        pass
+        """
+        Decodes the given action as a knight move, if possible.
+        """
+
+        from_rank, from_file, move_type = np.unravel_index(index, (8, 8, 73))
+        
+        is_knight_move = self._TYPE_OFFSET <= move_type and move_type < self._TYPE_OFFSET + self._NUM_TYPES
+        if not is_knight_move:
+            return None
+        
+        knight_move_type = move_type - self._TYPE_OFFSET
+
+        delta_rank, delta_file = self._DIRECTIONS[knight_move_type]
+
+        to_rank = from_rank + delta_rank
+        to_file = from_file + delta_file
+
+        move = utils.pack(from_rank, from_file, to_rank, to_file)
+        return move
 
 class UnderPromotionsEncoding:
     def __init__(self):
@@ -140,12 +171,86 @@ class UnderPromotionsEncoding:
         ]
 
     def encode(self, move):
-        pass
+        """
+        Encodes the given underpromotion move, if possible, else return None
+        """
 
-    def decode(self, move):
-        pass
+        from_rank, from_file, to_rank, to_file = utils.unpack(move)
+        is_underpromotion = (move.promotion in self._PROMOTIONS and from_rank == 6 and to_rank == 7)
+        if not is_underpromotion:
+            return None
+        
+        delta_file = to_file - from_file
+
+        direction_idx = self._DIRECTIONS.index(delta_file)
+        promotion_idx = self._PROMOTIONS.index(move.promotion)
+
+        underpromotion_type = np.ravel_multi_index(
+            multi_index = ([direction_idx, promotion_idx]),
+            dims = (3, 3)
+        )
+
+        move_type = self._TYPE_OFFSET + underpromotion_type 
+
+        action = np.ravel_multi_index(
+            multi_index = ((from_rank, from_file, move_type)),
+            dims = (8, 8, 73)
+        )
+        
+        return action
+
+    def decode(self, index):
+        """
+        Decodes the given action index into a knight move, if possible, else returns None
+        """
+
+        from_rank, from_file, move_type = np.unravel_index(index, (8, 8, 73))
+
+        is_underpromotion = (
+        self._TYPE_OFFSET <= move_type
+        and move_type < self._TYPE_OFFSET + self._NUM_TYPES
+        )
+
+        if not is_underpromotion:
+            return None
+
+        underpromotion_type = move_type - self._TYPE_OFFSET
+
+        direction_idx, promotion_idx = np.unravel_index(
+            indices=underpromotion_type,
+            shape=(3,3)
+        )
+
+        direction = self._DIRECTIONS[direction_idx]
+        promotion = self._PROMOTIONS[promotion_idx]
+
+        to_rank = from_rank + 1
+        to_file = from_file + direction
+
+        move = utils.pack(from_rank, from_file, to_rank, to_file)
+        move.promotion = promotion
+
+        return move
 
 if __name__ == "__main__":
+    # Queen move
     move = chess.Move.from_uci("e2e4")
     queenMovesEncoding = QueenMovesEncoding()
-    print(queenMovesEncoding.encode(move))
+    queenMoveIdx = queenMovesEncoding.encode(move)
+    print(queenMoveIdx)
+    print(queenMovesEncoding.decode(queenMoveIdx))
+
+    # Knight move
+    move = chess.Move.from_uci("g1f3")
+    knightMovesEncoding = KnightMovesEncoding()
+    knightMoveIdx = knightMovesEncoding.encode(move)
+    print(knightMoveIdx)
+    print(knightMovesEncoding.decode(knightMoveIdx))
+
+    # Underpromotion
+    move = chess.Move.from_uci("a7a8")
+    move.promotion = chess.BISHOP
+    underPromotionEncoding = UnderPromotionsEncoding()
+    underPromotionIdx = underPromotionEncoding.encode(move)
+    print(underPromotionIdx)
+    print(underPromotionEncoding.decode(underPromotionIdx))
