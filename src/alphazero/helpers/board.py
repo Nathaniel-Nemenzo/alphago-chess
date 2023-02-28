@@ -12,7 +12,7 @@ class BoardRepresentation:
 
     This converts observations (chess.Board instances) to torch.Tensors using the encoding proposed in [Silver et al., 2017]
 
-    An observation is a tensor of shape (8, 8, k * 14 + 7). This is a 'stack' of 8x8 planes,
+    An observation is a tensor of shape (k * 14 + 7, 8, 8). This is a 'stack' of 8x8 planes,
     where each of the k * 14 + 7 planes represents a different aspect of a game of chess.
 
     The first k * 14 planes encode the k most recent board positions, referred to as the board's history,
@@ -31,7 +31,7 @@ class BoardRepresentation:
         k: The number of recent board positions encoded in an observation (corresponds to the 'k' parameter above).
 
     Observations:
-        Tensor(8, 8, k * 14 + 7)
+        Tensor(k * 14 + 7, 8, 8) <- pytorch convention is (N, C, W, H)
     """
 
 
@@ -47,30 +47,30 @@ class BoardRepresentation:
 
     def observation(self, board):
         """
-        Converts chess.Board observations instance to Tensors
+        Stores the observation in the representation and converts chess.Board observations instance to Tensors
         """
         self._history.push(board)
         history = self._history.view(orientation = board.turn)
-        meta = torch.zeros(8, 8, 7)
+        meta = torch.zeros(7, 8, 8)
 
         # Active player color
-        meta[:, :, 0] = int(board.turn)
+        meta[0, :, :] = int(board.turn)
 
         # Total move count
-        meta[:, :, 1] = board.fullmove_number
+        meta[1, :, :] = board.fullmove_number
 
         # Active player castling rights
-        meta[:, :, 2] = board.has_kingside_castling_rights(board.turn)
-        meta[:, :, 3] = board.has_queenside_castling_rights(board.turn)
+        meta[2, :, :] = board.has_kingside_castling_rights(board.turn)
+        meta[3, :, :] = board.has_queenside_castling_rights(board.turn)
 
         # Opponent player castling rights
-        meta[:, :, 4] = board.has_kingside_castling_rights(not board.turn)
-        meta[:, :, 5] = board.has_queenside_castling_rights(not board.turn)
+        meta[4, :, :] = board.has_kingside_castling_rights(not board.turn)
+        meta[5, :, :] = board.has_queenside_castling_rights(not board.turn)
 
         # No-progress counter
-        meta[:, :, 6] = board.halfmove_clock
+        meta[6, :, :] = board.halfmove_clock
 
-        observation = torch.cat([history, meta], axis = -1)
+        observation = torch.cat([history, meta], dim = 0)
         return observation
 
 class BoardHistory:
@@ -87,7 +87,7 @@ class BoardHistory:
 
     def __init__(self, k):
         self.k = k
-        self._buffer = torch.zeros(k, 8, 8, 14)
+        self._buffer = torch.zeros(k, 14, 8, 8)
 
     def push(self, board):
         """
@@ -112,7 +112,7 @@ class BoardHistory:
         Args:
             board: The chess.Board instance to encode
         """
-        tensor = torch.zeros(8, 8, 14)
+        tensor = torch.zeros(14, 8, 8)
 
         for square, piece in board.piece_map().items():
             rank, file = chess.square_rank(square), chess.square_file(square)
@@ -126,17 +126,17 @@ class BoardHistory:
             idx = piece_type - 1
 
             # Place into tensor
-            tensor[rank, file, idx + offset] = 1 
+            tensor[idx + offset, rank, file] = 1 
 
         # Repetition counters
-        tensor[:, :, 12] = board.is_repetition(2)
-        tensor[:, :, 13] = board.is_repetition(3)
+        tensor[12, :, :] = board.is_repetition(2)
+        tensor[13, :, :] = board.is_repetition(3)
 
         return tensor
 
     def view(self, orientation):
         """
-        Return a Tensor(8, 8, k * 14) representation of this BoardHistory instance. If less than k positions have been added since the last reset
+        Return a Tensor(k * 14, 8, 8) representation of this BoardHistory instance. If less than k positions have been added since the last reset
         or since instantiation, missing positions are zerod out.
 
         Positions are oriented toward player white by default; setting the optional orientation parameter to 'chess.BLACK' will reorient
@@ -150,17 +150,17 @@ class BoardHistory:
         if orientation == chess.BLACK:
             for board_array in ret:
                 # Rotate all planes encoding the position by 180 degrees
-                rotated = torch.rot90(board_array[:, :, :12], k = 2)
+                rotated = torch.rot90(board_array[:12, :, :], k = 2)
 
                 # In the buffer, the first six planes encode white's pieces;
                 # Swap with the second six planes
-                rotated = torch.roll(rotated, shift = 6, axis = -1)
+                rotated = torch.roll(rotated, shift = 6, dims = 0)
 
                 # Copy the first 12 elements of the third dimension back into the board array
-                board_array[:, :, :12] = rotated
+                board_array[:12, :, :] = rotated
 
         # Concatenate k stacks of 14 planes to one stack of k * 14 planes
-        ret = torch.cat(torch.unbind(ret, dim = 0), dim = -1)
+        ret = torch.cat(torch.unbind(ret, dim = 0), dim = 0)
         return ret
 
     def reset(self):
@@ -173,4 +173,4 @@ if __name__ == "__main__":
     rep = BoardRepresentation()
     board = chess.Board()
     observation = rep.observation(board)
-    print(observation.shape)
+    print(observation[0])
