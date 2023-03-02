@@ -1,11 +1,14 @@
 """
 Encapsulates algorithm for Neural network-aided Monte Carlo Tree Search as proposed by [Silver et al., 2017]
+
+Based on: https://github.com/suragnair/alpha-zero-general/blob/master/MCTS.py
 """
 
 import chess
 import torch
 
 from math import sqrt
+from game.chess import ChessGame
 
 from helpers.move import MoveRepresentation
 from helpers.board import BoardRepresentation
@@ -13,7 +16,7 @@ from helpers.board import BoardRepresentation
 move_encoder = MoveRepresentation()
 board_encoder = BoardRepresentation()
 
-class MCTS:
+class MonteCarloTreeSearch:
     """
     Handles Monte Carlo tree search
     """
@@ -34,7 +37,10 @@ class MCTS:
         # This is normalized over the valid actions
         self.P_s = {}
 
-    def search(self, board, model):
+        # Start a new game (each game coincides with one MCTS instance)
+        self.game = ChessGame
+
+    def search(self, board: chess.Board):
         """
         Performs one iteration of MCTS. It is recursively called until a leaf node is found. The algorithm is as follows:
 
@@ -50,22 +56,15 @@ class MCTS:
         s = board.fen()
 
         # Get all the legal moves for the current player
-        legal_moves = torch.Tensor([move_encoder.encode(move) for move in board.legal_moves if board.color_at(move.from_square) == board.turn])
+        legal_moves = torch.Tensor(self.game.getValidActions(board))
 
         # Check if the game is over and propagate the values upward
-        if board.is_game_over():
-            if board.result() == "1-0":
-                # White won
-                return 1 if board.turn == chess.BLACK else -1
-            elif board.result() == "0-1":
-                # Black won
-                return 1 if board.turn == chess.WHITE else -1
-            else:
-                return 0
+        if self.game.gameEnded(board):
+            return -self.game.getRewards(board)
 
         # Check if this is a leaf node (not visited yet)
         if s not in self.P_s:
-            p, v = model.forward(board_encoder.observation(board))
+            p, v = self.model.forward(self.game.getBoard(board))
 
             # Mask invalid values using a mask tensor
             mask = torch.zeros(p.shape)
@@ -99,10 +98,10 @@ class MCTS:
                 best_a = a
 
         # Recurse on the resulting state
-        chess_move = move_encoder.decode(best_a)
-        board.push(chess_move)
-        v = self.search(board)
-        board.pop()
+        next_s = self.game.nextState(board, best_a)
+
+        # Get the value of the action from this state
+        v = self.search(next_s)
 
         # Update Q values and visit counts for the sampled action
         self.Q_sa[(s, best_a)] = (self.N_sa[(s, a)] * self.Q_sa[(s, a)] * v) / (self.N_sa[(s, a)] + 1)
@@ -112,4 +111,13 @@ class MCTS:
         self.N_s[s] += 1
 
         return -v
+    
+    def actionProbabilities(self, board, temp = 1):
+        """
+        Performs numSimulations simulations of MCTS starting from the given state.
+
+        Returns:
+            probs: a policy vector where the probability of the ith action is proportional to N_sa[(s, a)] ** (1./temp)
+        """
+        pass
             
