@@ -39,9 +39,9 @@ class ResidualBlock(nn.Module):
         x = F.relu(x, inplace = True)
         return x
 
-class PolicyNetwork(nn.Module):
+class AlphaZeroNetwork(nn.Module):
     def __init__(self, h = 8, num_filters = 256, num_res_layers = 11):
-        super(PolicyNetwork, self).__init__()
+        super(AlphaZeroNetwork, self).__init__()
         self.num_res_layers = num_res_layers
         self.num_filters = num_filters
 

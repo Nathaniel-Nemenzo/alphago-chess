@@ -6,7 +6,7 @@ import argparse
 from logging import getLogger
 
 _LOGGER = getLogger(__name__)
-_CMD_LIST = ['self', 'eval', 'opt', 'sl']
+_CMD_LIST = ['train', 'opt']
 
 def create_parser():
     parser = argparse.ArgumentParser()
@@ -21,17 +21,11 @@ def start():
     args = parser.parse_args()
 
     match args.cmd:
-        case 'self':
-            from .workers import self_play
-            print('self')
-        case 'eval':
-            from .workers import eval
-            print('eval')
+        case 'train':
+            from .workers import train
+            train.start()
         case 'opt':
-            from .workers import opt
-            print('opt')
-        case 'sl':
-            from workers.sl import start
-            start()
+            from .workers import self_play
+            self_play.start()
         case _:
-            print('Usage: ./run.py --cmd [self | eval | opt | sl]')
+            print('Usage: ./run.py --cmd [train | self-play]')

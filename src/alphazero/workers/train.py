@@ -1,11 +1,11 @@
 """
-Encapsulates worker to train the neural network on previous optimized versions of itself.
+Encapsulates worker to train the neural network based on examples collected from self-play.
 """
 
 import os
 import torch
 
-from agent.policy import PolicyNetwork
+from agent.model import AlphaZeroNetwork
 
 def start():
     return NotImplemented
