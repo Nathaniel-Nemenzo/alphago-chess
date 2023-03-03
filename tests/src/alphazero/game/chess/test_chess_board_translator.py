@@ -97,17 +97,34 @@ def test_view():
 def test_encode():
     board = chess.Board()
 
-    # Make 8 moves to build up history
-    for i in range(9):
+    # Make moves to build up history
+    oldest_state = None
+    for i in range(8):
         legal_moves = list(filter(lambda move: not board.is_capture(move), board.legal_moves)) # get all non-capture legal moves
         if not legal_moves: # if no legal moves left, break out of the loop
             break
         move = random.choice(legal_moves) # choose a random non-capture legal move
+
         board.push(move) # make the move on the board
 
+        if i == 0:
+            oldest_state = chess.Board(board.fen())
 
-    # Encode
+    newest_state = chess.Board(board.fen())
+
+    # Encode (from black perspective)
     tensor = translator.encode(board)
+
+    # Check that the oldest_state and newest move encoded match the return tensor
+    oldest_tensor = translator._ChessBoardTranslator__encode_single_board(oldest_state)
+    newest_tensor = translator._ChessBoardTranslator__encode_single_board(newest_state)
+
+    # Assert that states match order in resultin g tensor
+    # newest is at [0], oldest is at [7]
+    print(tensor[98])
+    print(oldest_tensor[0])
+    assert(torch.allclose(tensor[0:14], newest_tensor))
+    assert(torch.allclose(tensor[98:112], oldest_tensor))
 
     assert(tensor.shape == (119, 8, 8))
 
@@ -115,6 +132,7 @@ def test_encode():
     for i in range(8):
         assert_board_state_post_view(tensor, i)
 
-    assert(torch.sum(tensor[112]) == 0)
+    assert(torch.sum(tensor[112]) == 64)
     assert(torch.sum(tensor[113]) == 5 * 64)
-    assert(torch.sum(tensor[114]) == 64)
+
+    # can't assert casting rights and no progress counter (not sure because random)
