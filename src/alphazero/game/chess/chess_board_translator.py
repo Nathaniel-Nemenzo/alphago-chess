@@ -38,19 +38,22 @@ class ChessBoardTranslator(BoardTranslator):
 
     def encode(self, board: chess.Board) -> torch.Tensor:
         history = torch.zeros(self.k, 14, 8, 8)
-        move_number = board.fullmove_number
+
+        # Move number is the counter for each turn (not for a pair of turns)
+        move_number = board.fullmove_number * 2 if board.turn == chess.WHITE else board.fullmove_number * 2 - 1
 
         # Copy the input board (we need to pop out the states to build up history)
-        board = board.copy()
+        copy_board = board.copy()
 
         # Push into history
         for i in range(min(self.k, move_number)):
-            self.__push_into_history(board, history, i)
+            self.__push_into_history(copy_board, history, i)
+            copy_board.pop()
 
         # Concatenate planes and switch orientations
-        history = self.__view(history, board.turn)
+        history = self.__view(history, copy_board.turn)
 
-        # Add metadata
+        # Add metadata about current board
         meta = self.__meta(board)
 
         # Concatenate history and metadata

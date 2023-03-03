@@ -1,5 +1,6 @@
 import torch
 import chess
+import random
 from game.chess.chess_board_translator import ChessBoardTranslator
 
 translator = ChessBoardTranslator()
@@ -70,30 +71,14 @@ def test_view():
     tensor = torch.zeros(8, 14, 8, 8)
     board = chess.Board()
 
-    # Make 8 moves to build up history
-    board.push(chess.Move.from_uci("a2a3"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 7)
-
-    board.push(chess.Move.from_uci("a7a6"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 6)
-
-    board.push(chess.Move.from_uci("b2b3"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 5)
-
-    board.push(chess.Move.from_uci("b7b6"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 4)
-
-    board.push(chess.Move.from_uci("c2c3"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 3)
-
-    board.push(chess.Move.from_uci("c7c6"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 2)
-
-    board.push(chess.Move.from_uci("d2d3"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 1)
-
-    board.push(chess.Move.from_uci("d7d6"))
-    translator._ChessBoardTranslator__push_into_history(board, tensor, 0)
+    # Make 8 moves to build up history (no captures)
+    for i in range(8):
+        legal_moves = list(filter(lambda move: not board.is_capture(move), board.legal_moves)) # get all non-capture legal moves
+        if not legal_moves: # if no legal moves left, break out of the loop
+            break
+        move = random.choice(legal_moves) # choose a random non-capture legal move
+        board.push(move) # make the move on the board
+        tensor = translator._ChessBoardTranslator__push_into_history(board, tensor, i)
 
     # Get view of board from white side
     view = translator._ChessBoardTranslator__view(tensor, chess.WHITE)
@@ -104,39 +89,32 @@ def test_view():
 
     # Get view of board from black side
     view = translator._ChessBoardTranslator__view(tensor, chess.BLACK)
-    # print(view[0])
-    # print(view[1])
-    # print(view[2])
-    # print(view[3])
-    # print(view[4])
-    # print(view[5])
-
-
 
     for i in range(8):
         assert_board_state_post_view(view, i)
 
 
-def test_meta():
-    pass
-
 def test_encode():
-    pass
-    # board = chess.Board()
+    board = chess.Board()
 
-    # # Make 8 moves to build up history
-    # board.push(chess.Move.from_uci("a2a3"))
-    # board.push(chess.Move.from_uci("a7a6"))
-    # board.push(chess.Move.from_uci("b2b3"))
-    # board.push(chess.Move.from_uci("b7b6"))
-    # board.push(chess.Move.from_uci("c2c3"))
-    # board.push(chess.Move.from_uci("c7c6"))
-    # board.push(chess.Move.from_uci("d2d3"))
-    # board.push(chess.Move.from_uci("d7d6"))
+    # Make 8 moves to build up history
+    for i in range(9):
+        legal_moves = list(filter(lambda move: not board.is_capture(move), board.legal_moves)) # get all non-capture legal moves
+        if not legal_moves: # if no legal moves left, break out of the loop
+            break
+        move = random.choice(legal_moves) # choose a random non-capture legal move
+        board.push(move) # make the move on the board
 
-    # # Encode
-    # tensor = translator.encode(board)
 
-    # # Check all time steps
-    # for i in range(8):
-    #     assert_board_state_post_view(tensor, i)
+    # Encode
+    tensor = translator.encode(board)
+
+    assert(tensor.shape == (119, 8, 8))
+
+    # Check all time steps
+    for i in range(8):
+        assert_board_state_post_view(tensor, i)
+
+    assert(torch.sum(tensor[112]) == 0)
+    assert(torch.sum(tensor[113]) == 5 * 64)
+    assert(torch.sum(tensor[114]) == 64)
