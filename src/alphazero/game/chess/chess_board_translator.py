@@ -87,15 +87,14 @@ class ChessBoardTranslator(BoardTranslator):
         if orientation == chess.BLACK:
             for board_array in board:
                 # Rotate all planes encoding the position by 180 degrees
-                rotated = torch.rot90(board_array[:12, :, :], k = 2)
+                rotated = torch.rot90(board_array[:12, :, :], k = 2, dims = (1, 2))
 
                 # In the buffer, the first six planes encode white's pieces;
                 # Swap with the second six planes
-                rotated = torch.roll(rotated, shift = 6, dims = 0)
+                rotated = torch.roll(rotated, shifts = 6, dims = 0)
 
                 # Copy the first 12 elements of the third dimension back into the board array
                 board_array[:12, :, :] = rotated
-        
 
         # Concatenate k stacks of 14 planes to one stack of k * 14 planes
         board = torch.cat(torch.unbind(board, dim = 0), dim = 0)
