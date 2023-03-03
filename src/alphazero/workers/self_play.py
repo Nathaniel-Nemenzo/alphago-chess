@@ -7,8 +7,8 @@ import sys
 import torch
 import chess
 
-from game.chess import ChessGame
-from agent.model import AlphaZeroNetwork
+from alphazero.game.chess.chess import ChessGame
+from alphazero.game.chess.model import AlphaZeroNetwork
 from mcts.mcts import MonteCarloTreeSearch
 
 def start():
@@ -37,16 +37,18 @@ class SelfPlayWorker:
         Initialize this worker.
 
         Args:
-            iterations: Number of policy iterations that we want
-            episodes: Number of training episodes (entire game) that we want to collect for each policy iteration
-            output_path: Specifies the path that we want to write our training examples to 
-            output_path: Specifies the path to the model to begin policy iteration on. If this is None, then use a model with random weights.
-            mcts_simulations: Number of iterations to use in Monte Carlo Tree Search (essentially how much of the subtree we simulate), the more iterations the better the policy.
-            c_puct: PUCT constant corresponding on how much we want to exploit vs. explore in MCTS.
+            game: Chess game object
+            model: PyTorch neural network
+            args: 
+                - iterations
+                - episodes
+                - mcts_simulations
+                - temp_threshold
         """
 
         self.game = game
         self.model = model
+        self.mcts = MonteCarloTreeSearch()
         
         # Store the current model
         self.old_model = AlphaZeroNetwork()
@@ -64,8 +66,8 @@ class SelfPlayWorker:
         Begin policy iteration through self play (as described above)
         """
 
-        for i in range(self.iterations):
-            for e in range(self.episodes):
+        for i in range(self.args.iterations):
+            for e in range(self.args.episodes):
                 examples += self.episode()
     
     def episode(self):
@@ -73,19 +75,22 @@ class SelfPlayWorker:
         Execute one episode of MCTS self-play. Each turn is added as a training example to the stored examples. The game is played
         until end. After the game ends, the outcome is used to assign values to each examples in the stored examples
         """
+
         examples = []
         board = self.game.newBoard()
         step = 0
 
         while True:
             step += 1
-            for _ in range(self.mcts_simulations):
-                # Simulate games
-                mcts.search(s, self.model)
             
+            # Get the temperature (based on the move count)
+            temp = int(step < self.args.temp_threshold)
+
             # Put first training example in examples (the reward can not yet be determined because the game is not finished.)
-            policy = mcts.P_s[s]
-            examples.append([s, policy, None])
+            improved_policy = self.mcts.getActionProb(board, temp = temp)
+
+            # Append the improved policy to our training examples
+            examples.append([])
 
             # Now, sample an action from the improved policy
             # Switch to Tensor implementation

@@ -8,7 +8,7 @@ import chess
 import torch
 
 from math import sqrt
-from game.chess import ChessGame
+from alphazero.game.chess.chess import ChessGame
 
 from helpers.move import MoveRepresentation
 from helpers.board import BoardRepresentation
@@ -104,20 +104,45 @@ class MonteCarloTreeSearch:
         v = self.search(next_s)
 
         # Update Q values and visit counts for the sampled action
-        self.Q_sa[(s, best_a)] = (self.N_sa[(s, a)] * self.Q_sa[(s, a)] * v) / (self.N_sa[(s, a)] + 1)
-        self.N_sa[(s, a)] += 1
+        self.Q_sa[(s, best_a)] = (self.N_sa[(s, best_a)] * self.Q_sa[(s, best_a)] * v) / (self.N_sa[(s, best_a)] + 1)
+        self.N_sa[(s, best_a)] += 1
 
         # Update the number of times we have visited this state
         self.N_s[s] += 1
 
         return -v
     
-    def actionProbabilities(self, board, temp = 1):
+    def actionProbabilities(self, board: chess.Board, temp = 1):
         """
         Performs numSimulations simulations of MCTS starting from the given state.
 
         Returns:
-            probs: a policy vector where the probability of the ith action is proportional to N_sa[(s, a)] ** (1./temp)
+            probs: a policy tensor of  where the probability of the ith action is proportional to N_sa[(s, a)] ** (1./temp)
         """
-        pass
+        
+        # Perform simulations
+        for _ in range(self.args.numSimulations):
+            self.search(board)
+
+        s = board.fen()
+
+        # Get (s, a) counts
+        counts = torch.Tensor([self.N_sa.get((s, a), 0) for a in range(self.game.getActionSize())])
+
+        # If the temperature == 0, pick the move with the maximum counts
+        if temp == 0:
+            max_index = torch.argmax(counts)
+            result = torch.zeros((1, len(counts)))
+            result[0][max_index] = 1
+            return result
+        
+        # If the temperature != 0, apply the temperature over all counts
+        probs = counts ** (1. / temp)
+        probs_sum = torch.sum(probs)
+        if probs_sum <= 0:
+            probs += counts
+            probs_sum = torch.sum(probs)
+        probs /= probs_sum
+        return probs.reshape(1, -1)
+        
             

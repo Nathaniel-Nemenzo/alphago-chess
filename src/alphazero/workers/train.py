@@ -5,7 +5,7 @@ Encapsulates worker to train the neural network based on examples collected from
 import os
 import torch
 
-from agent.model import AlphaZeroNetwork
+from alphazero.game.chess.model import AlphaZeroNetwork
 
 def start():
     return NotImplemented
