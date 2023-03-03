@@ -4,6 +4,9 @@
 # High elo game data
 data/
 
+# vscode
+.vscode/
+
 # Saved models
 models/
 

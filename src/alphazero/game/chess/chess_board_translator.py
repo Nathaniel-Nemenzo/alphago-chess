@@ -37,6 +37,18 @@ class ChessBoardTranslator(BoardTranslator):
         self.k = k
 
     def encode(self, board: chess.Board) -> torch.Tensor:
+        """Encodes a chess board into [Silver et al.] representation. 
+
+        Pops the board states back k steps, encodes those board states in the orientation of the passed in board, and returns a (14 * k + 7) of that board state and its history back k steps.
+
+        Args:
+            board (chess.Board): Board to encode.
+
+        Returns:
+            torch.Tensor: (14 * k + 7) tensor describing the state of the game starting from the passed in board as well as the history k time steps back.
+            
+            Each time step t (with k total time steps) is encoded as a (14, 8, 8) plane, with the first 6 planes encoding the active player's pieces, the next 6 planes encoding the opponent player's pieces, and the last 2 places encoding two-fold and three-fold repetitions.
+        """
         history = torch.zeros(self.k, 14, 8, 8)
 
         # Move number is the counter for each turn (not for a pair of turns)
@@ -50,8 +62,8 @@ class ChessBoardTranslator(BoardTranslator):
             self.__push_into_history(copy_board, history, i)
             copy_board.pop()
 
-        # Concatenate planes and switch orientations
-        history = self.__view(history, copy_board.turn)
+        # Concatenate planes from the orientation of the passed in board
+        history = self.__view(history, board.turn)
 
         # Add metadata about current board
         meta = self.__meta(board)
@@ -63,12 +75,27 @@ class ChessBoardTranslator(BoardTranslator):
     
     def __meta(self,
                board: chess.Board) -> torch.Tensor:
+        """Gets (7, 8, 8) tensor describing the metadata of the passed in board.
+
+        Args:
+            board (chess.Board): Board to encode metadata from
+
+        Returns:
+            torch.Tensor: (7, 8, 8) tensor describing metadata as so: 
+                - 0: active player color
+                - 1: fullmove count
+                - 2: active player kingside castling rights
+                - 3: active player queenside castling rights
+                - 4: opponent player kingside castling rights
+                - 5: opponent player queenside castling rights
+                - 6: halfmove clock
+        """
         meta = torch.zeros(7, 8, 8)
 
         # Active player color
         meta[0, :, :] = int(board.turn)
 
-        # Total move count
+        # Full-move count
         meta[1, :, :] = board.fullmove_number
 
         # Active player castling rights
@@ -87,6 +114,17 @@ class ChessBoardTranslator(BoardTranslator):
     def __view(self, 
                board: torch.Tensor, 
                orientation: chess.Color) -> torch.Tensor:
+        """Rotates the passed in Tensor representation of the board according to the specified orientation (if chess.Black, then we need to rotate planes and switch first 6 planes to last 6 planes for each (14, 8, 8) history step in the passed in representation).
+
+        Then, will unbind the tensor and concatenate the k (14, 8, 8) planes to form a (k * 14, 8, 8) plane.
+
+        Args:
+            board (torch.Tensor): Tensor describing the board and history. Expected to be of shape (k, 14, 8, 8)
+            orientation (chess.Color): Orientation of board (essentially whose turn iti s)
+
+        Returns:
+            torch.Tensor: (14 * k, 8, 8) tensor describing the state of the board and k history steps.
+        """
         if orientation == chess.BLACK:
             for board_array in board:
                 # Rotate all planes encoding the position by 180 degrees
@@ -105,20 +143,35 @@ class ChessBoardTranslator(BoardTranslator):
 
     def __push_into_history(self, 
                             board: chess.Board, 
-                            rep: torch.Tensor,
+                            history: torch.Tensor,
                             i: int) -> torch.Tensor:
+        """Pushes a board into a history tenor.
+
+        Args:
+            board (chess.Board): Board to push into the history tensor
+            history (torch.Tensor): History tensor of size (k, 14, 8, 8), where the first dimension describes how many time steps of history we should encode and the last 3 dimensions encode the board, as above.
+            i (int): index of where to put the board encoding; indexes into k.
+
+        Returns:
+            torch.Tensor: Returns the new history tensor with the board encoding placed at the specified index.
+        """
         board_tensor = self.__encode_single_board(board)
 
         # Overwrite the oldest element in representation
-        rep[i] = board_tensor
+        history[i] = board_tensor
 
-        # # Roll inserted element to the top (into the most recent position)
-        # rep = torch.roll(rep, shifts = 1, dims = 0)
-
-        return rep
+        return history
         
 
     def __encode_single_board(self, board: chess.Board) -> torch.Tensor:
+        """Encodes a single board into its representative Tensor.
+
+        Args:
+            board (chess.Board): Board to encode
+
+        Returns:
+            torch.Tensor: (14, 8, 8) tensor describing the state of the board, as above.
+        """
         tensor = torch.zeros(14, 8, 8)
 
         for square, piece in board.piece_map().items():

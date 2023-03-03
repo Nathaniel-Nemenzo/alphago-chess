@@ -1,41 +1,109 @@
-from abc import ABC, abstractmethod
-
 import chess
-import 
 import numpy as np
+import utils
 
-class MoveTranslator(ABC):
-    """
-    Abstract class for converting to/from move representations (as specified by user or libraries like chess.Move) and integers that represent the action, like how actions are encoded in [Silver et al.] for chess in a (1, 4672) tensor.
+from game.move_translator import MoveTranslator
+
+class ChessMoveTranslator(MoveTranslator):
+    """Implements the move encoding from [Silver et al., 2017]
+    Based on: https://github.com/iamlucaswolf/gym-chess/tree/master/gym_chess/alphazero/move_encoding
+    
+    Moves are encoded as indices into a flattened (73, 8, 8) tensor, where each index encodes a possible move.
+    The first two dimensions correspond to the square from which the piece is picked up. The last dimension denotes the 
+    "move type", which describes how the selected piece is moved from its current position.
+    Silver et al. defines three move types:
+
+        - queen moves: move the pieces horizontally, vertically, or diagonally for any number of squares (56 total moves)
+        - knight moves: move the piece in an L shape (two squares either horizontally or vertically, followed by one square orthogonally) (8 total moves)
+        - underpromotions: let a pawn move from the 7th to the 8th rank and promote to either a knight, bishop, or rook (hence 'under').
+                           Moving a pawn to the 8th rank with a queen move is automatically assumed to be a queen promotion. (9 total moves)
+
+    Args:
+        MoveTranslator (_type_): _description_
     """
     def __init__(self):
-        pass
+        self.queenMovesTranslator = QueenMovesTranslator()
+        self.knightMovesTranslator = KnightMovesTranslator()
+        self.underpromotionTranslator = UnderpromotionsTranslator()
 
-    @abstractmethod
-    def encode(self, move: any) -> int:
-        """ Encode a game move of any type to an integer.
-
-        Args:
-            move (any): Game move
-
-        Returns:
-            int: Integer representing game move
-        """
-        pass
-
-    @abstractmethod
-    def decode(self, move: int) -> any:
-        """ Decode a move of any type (as encoded by self.encode()) to its corresponding move
+    def encode(self, move: tuple(chess.Move, chess.Color)) -> int:
+        """Encodes a chess.Move instance into a corresponding action integer.
 
         Args:
-            move (int): Integer to decode
+            move (tuple): Tuple of the form (move, turn). move is assumed to be in the perspective of white, so if turn is chess.BLACK, move will be rotated to the perspective of black.
+
+        Raises:
+            ValueError: Raise a value error if a move cannot be encoded.
 
         Returns:
-            any: Game move
+            int: Returns a int describing an index in a flattened (73, 8, 8) tensor, as above. Notice that the mapping from move to integer is not the same for different orientations.
         """
-        pass
+        turn = move[1]
+        move = move[0]
+        if turn == chess.BLACK:
+            move = utils.rotate(move)
 
-class QueenMovesEncoding:
+        action = self.queenMoveEncoding.encode(move)
+        
+        if action is None:
+            action = self.knightMoveEncoding.encode(move)
+
+        if action is None:
+            action = self.underPromotionEncoding.encode(move)
+
+        # Invalid move
+        if action is None:
+            raise ValueError(f"{move} is not considered to be a valid move.")
+
+        return action
+
+    def decode(self, move: tuple(int, chess.Color, bool)) -> chess.Move:
+        """Converts an encoded action (as an integer) into its corresponding action.
+
+        Args:
+            move (tuple): Tuple of the form (action as integer, turn, is_pawn). Action is assumed to be in the perspective of white, so if turn is chess.BLACK, the resulting move will be in the perspective of player black.
+
+        Raises:
+            ValueError: If the action cannot be decoded
+
+        Returns:
+            chess.Move: Move in the given orientation corresponding to the given action integer.
+        """
+        pawn = move[2]
+        turn = move[1]
+        move = self.queenMovesTranslator.decode(move[0])
+
+        is_queen_move = move is not None
+        
+        # Sequentially check all encodings
+        if not move:
+            move = self.knightMoveEncoding.decode(move)
+
+        if not move:
+            move = self.underPromotionEncoding.decode(move)
+
+        if not move:
+            raise ValueError(f"{move} is not a valid action.")
+
+        # Reorient action if player black
+        if turn == chess.BLACK:
+            move = utils.rotate(move)
+
+        # Moving a pawn to the opponent's home rank with a queen move is automatically assumed to be a queen underpromotion.
+        # Add this situation manually because the QueenMoves class has no access to board state or piece type
+        if is_queen_move:
+            to_rank = chess.square_rank(move.to_square)
+            is_promoting_move = (
+                (to_rank == 7 and turn == chess.WHITE) or 
+                (to_rank == 0 and turn == chess.BLACK)
+            )
+
+            if pawn and is_promoting_move:
+                move.promotion = chess.QUEEN
+
+        return move
+
+class QueenMovesTranslator(MoveTranslator):
     def __init__(self):
         self._TYPE_OFFSET = 0
         self._NUM_TYPES = 56
@@ -50,7 +118,7 @@ class QueenMovesEncoding:
             (-1, 1)  # NW
         )
 
-    def encode(self, move):
+    def encode(self, move: chess.Move) -> int:
         """
         Encode a queen move into action index representation, if possible, else returns None
         """
@@ -77,11 +145,11 @@ class QueenMovesEncoding:
         action = np.ravel_multi_index(multi_index = ((move_type, from_rank, from_file)), dims = (73, 8, 8))
         return action
 
-    def decode(self, index):
+    def decode(self, move: int) -> chess.Move:
         """
         Decode a moFve in action index representation to a queen move
         """
-        move_type, from_rank, from_file = np.unravel_index(index, (73, 8, 8))
+        move_type, from_rank, from_file = np.unravel_index(move, (73, 8, 8))
         is_queen_move = move_type < self._NUM_TYPES
         if not is_queen_move:
             return None
@@ -106,7 +174,7 @@ class QueenMovesEncoding:
         move = utils.pack(from_rank, from_file, to_rank, to_file)
         return move
 
-class KnightMovesEncoding:
+class KnightMovesTranslator(MoveTranslator):
     def __init__(self):
         self._TYPE_OFFSET = 56
         self._NUM_TYPES = 8
@@ -121,7 +189,7 @@ class KnightMovesEncoding:
             (2, -1),   
         )
 
-    def encode(self, move):
+    def encode(self, move: chess.Move) -> int:
         """
         Encodes the given move as knight move, if possible, else returns None
         """
@@ -142,12 +210,12 @@ class KnightMovesEncoding:
 
         return action
 
-    def decode(self, index):
+    def decode(self, move: int) -> chess.Move:
         """
         Decodes the given action as a knight move, if possible.
         """
 
-        move_type, from_rank, from_file = np.unravel_index(index, (73, 8, 8))
+        move_type, from_rank, from_file = np.unravel_index(move, (73, 8, 8))
         
         is_knight_move = self._TYPE_OFFSET <= move_type and move_type < self._TYPE_OFFSET + self._NUM_TYPES
         if not is_knight_move:
@@ -163,7 +231,7 @@ class KnightMovesEncoding:
         move = utils.pack(from_rank, from_file, to_rank, to_file)
         return move
 
-class UnderPromotionsEncoding:
+class UnderpromotionsTranslator(MoveTranslator):
     def __init__(self):
         self._TYPE_OFFSET = 64
         self._NUM_TYPES = 9 # 3 directions * 3 piece types
@@ -174,7 +242,7 @@ class UnderPromotionsEncoding:
             chess.ROOK
         ]
 
-    def encode(self, move):
+    def encode(self, move: chess.Move) -> int:
         """
         Encodes the given underpromotion move, if possible, else return None
         """
@@ -203,12 +271,12 @@ class UnderPromotionsEncoding:
         
         return action
 
-    def decode(self, index):
+    def decode(self, move: int) -> chess.Move:
         """
         Decodes the given action index into a knight move, if possible, else returns None
         """
 
-        move_type, from_rank, from_file = np.unravel_index(index, (73, 8, 8))
+        move_type, from_rank, from_file = np.unravel_index(move, (73, 8, 8))
 
         is_underpromotion = (
         self._TYPE_OFFSET <= move_type
