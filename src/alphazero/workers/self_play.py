@@ -2,13 +2,10 @@
 Encapsulates worker to generate training examples from self-play using neural network-aided Monte Carlo tree search.
 """
 
-import os
-import sys
+import copy
 import torch
-import chess
 
-from alphazero.game.chess.chess import ChessGame
-from alphazero.game.chess.model import AlphaZeroNetwork
+from alphazero.game import game
 from mcts.mcts import MonteCarloTreeSearch
 
 def start():
@@ -30,7 +27,7 @@ class SelfPlayWorker:
 
     """
     def __init__(self, 
-                 game: ChessGame, 
+                 game: game.Game, 
                  model: torch.nn.Module, 
                  args):
         """
@@ -51,7 +48,7 @@ class SelfPlayWorker:
         self.mcts = MonteCarloTreeSearch()
         
         # Store the current model
-        self.old_model = AlphaZeroNetwork()
+        self.old_model = copy.deepcopy(model)
         self.old_model.load_state_dict(self.model.state_dict())
 
         self.args = args

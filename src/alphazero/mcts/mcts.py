@@ -6,21 +6,18 @@ Based on: https://github.com/suragnair/alpha-zero-general/blob/master/MCTS.py
 
 import chess
 import torch
+import torch.nn as nn
 
 from math import sqrt
 from alphazero.game.chess.chess import ChessGame
-
-from helpers.move import MoveRepresentation
-from helpers.board import BoardRepresentation
-
-move_encoder = MoveRepresentation()
-board_encoder = BoardRepresentation()
 
 class MonteCarloTreeSearch:
     """
     Handles Monte Carlo tree search
     """
-    def __init__(self, model, args):
+    def __init__(self, 
+                 model: nn.Module, 
+                 args):
         self.model = model
         self.args = args
 
@@ -112,7 +109,7 @@ class MonteCarloTreeSearch:
 
         return -v
     
-    def actionProbabilities(self, board: chess.Board, temp = 1):
+    def improvedPolicy(self, board: chess.Board, temp = 1):
         """
         Performs numSimulations simulations of MCTS starting from the given state.
 
