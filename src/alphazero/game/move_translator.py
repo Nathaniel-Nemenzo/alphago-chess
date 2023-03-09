@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
 import chess
-import 
 import numpy as np
 
 class MoveTranslator(ABC):

@@ -1,29 +1,41 @@
-"""
-Wrapper around the chess.Board class which provides data representation of boards and moves along with
-other functionalities for AlphaZero
-"""
-
 import chess
 
-from helpers.move import MoveRepresentation
-from helpers.board import BoardRepresentation
+from .chess_board_translator import ChessBoardTranslator
+from .chess_move_translator import ChessMoveTranslator
 
-move_encoder = MoveRepresentation()
+board_translator = ChessBoardTranslator
+move_translator = ChessMoveTranslator
 
 class ChessGame():
-    def __init__(self, init_board):
-        # Store the board representation of this game (history up until the current step)
-        self.board_representation = BoardRepresentation()
-        self.board_representation.observation(init_board)
-
     def gameEnded(self, board):
+        """Returns whether or not a passed in game is over
+
+        Args:
+            board (_type_): Board to decide whether the game is over or not
+
+        Returns:
+            _type_: _description_
+        """
         return board.is_game_over()
     
     def getActionSize(self):
+        """Returns the action size a chess board. 
+
+        Returns:
+            _type_: Size of action space of the chess board. Corresponds to 8 x 8 x 73, where 73 represents 56 queen moves, 8 knight moves, and 9 underpromotions.
+        """
         # 8 x 8 x 73
         return 4672
 
     def gameRewards(self, board):
+        """Returns the rewards of a passed in terminal state
+
+        Args:
+            board (_type_): Board instance to get the reward from
+
+        Returns:
+            _type_: 1 representing a win for the active player, -1 representin ga loss for the active player, and 0 representing a tie for the active player
+        """
         if self.gameEnded(board):
             if board.result() == "1-0":
                 # White won
@@ -33,48 +45,50 @@ class ChessGame():
                 return 1 if board.turn == chess.WHITE else -1
             else:
                 return 0
+        return None
 
     def getValidActions(self, board: chess.Board):
-        """
-        Get all the valid actions for a certain board
-
-        Returns:
-            - List of chess actions encoded to [Silver et al.] representation
-        """
-        
-        return [move_encoder.encode(move) for move in board.legal_moves if board.color_at(move.from_square) == board.turn]
-
-    def nextState(self, board: chess.Board, a: int) -> chess.Board:
-        """
-        Apply an action to this game and get the resulting state
+        """Returns the valid actions of the current valid player encoded into the (8 x 8 x 73) action space.
 
         Args:
-            - a: Action to take specified as an integer according to [Silver et al.]
+            board (chess.Board): State of the board
+
+        Returns:
+            List[Tensor]: List representing the encoded states of the board
         """
+        return [move_translator.encode(move) for move in board.legal_moves if board.color_at(move.from_square) == board.turn]
 
-        # Decode the move
-        move = move_encoder.decode(a)
+    def nextState(self, board: chess.Board, a: int) -> chess.Board:
+        """Gets the next state of a board and a move
 
-        # Make the move on the board
+        Args:
+            board (chess.Board): Board of which to get the next state
+            a (int): Integer representing an action to take on the board
+
+        Returns:
+            chess.Board: State of the board after the action is taken
+        """
+        move = move_translator.decode(a)
         board.push(move)
-
-        # Add the move to the board representation
-        self.board_representation.observation(board)
-
-        # might leak reference??
         return board
 
     def getBoard(self, board):
-        """
-        Args:
-            - board: board to get representation
-        Returns:
-            board: a representation of the board that is of model input form (119x8x8).
-        
-        Encodes board history
-        """
+        """Gets the Tensor representation of a board state, including history.
 
-        return self.board_representation.view()
+        Args:
+            board (_type_): chess.Board instance representing the state of the board
+
+        Returns:
+            _type_: (119, 8, 8) tensor representation of the board
+        """
+        return board_translator.encode(board)
     
     def newBoard(self):
+        """Gets a new board (creates a new Chess game)
+
+        Returns:
+            _type_: 'Default' chess.Board instance
+        """
         return chess.Board()
+    
+    def 

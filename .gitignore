@@ -4,6 +4,9 @@
 # High elo game data
 data/
 
+# Test htmls
+*.html
+
 # vscode
 .vscode/
 

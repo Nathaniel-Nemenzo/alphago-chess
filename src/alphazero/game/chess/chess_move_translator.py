@@ -1,7 +1,7 @@
 import chess
 import numpy as np
-import utils
 
+from .utils import rotate, IndexedTuple, unpack, pack
 from game.move_translator import MoveTranslator
 
 class ChessMoveTranslator(MoveTranslator):
@@ -26,7 +26,7 @@ class ChessMoveTranslator(MoveTranslator):
         self.knightMovesTranslator = KnightMovesTranslator()
         self.underpromotionTranslator = UnderpromotionsTranslator()
 
-    def encode(self, move: tuple(chess.Move, chess.Color)) -> int:
+    def encode(self, move: tuple([chess.Move, chess.Color])) -> int:
         """Encodes a chess.Move instance into a corresponding action integer.
 
         Args:
@@ -41,15 +41,15 @@ class ChessMoveTranslator(MoveTranslator):
         turn = move[1]
         move = move[0]
         if turn == chess.BLACK:
-            move = utils.rotate(move)
+            move = rotate(move)
 
-        action = self.queenMoveEncoding.encode(move)
+        action = self.queenMovesTranslator.encode(move)
         
         if action is None:
-            action = self.knightMoveEncoding.encode(move)
+            action = self.knightMovesTranslator.encode(move)
 
         if action is None:
-            action = self.underPromotionEncoding.encode(move)
+            action = self.underpromotionTranslator.encode(move)
 
         # Invalid move
         if action is None:
@@ -57,7 +57,7 @@ class ChessMoveTranslator(MoveTranslator):
 
         return action
 
-    def decode(self, move: tuple(int, chess.Color, bool)) -> chess.Move:
+    def decode(self, move: tuple([int, chess.Color, bool])) -> chess.Move:
         """Converts an encoded action (as an integer) into its corresponding action.
 
         Args:
@@ -71,23 +71,24 @@ class ChessMoveTranslator(MoveTranslator):
         """
         pawn = move[2]
         turn = move[1]
-        move = self.queenMovesTranslator.decode(move[0])
+        action = move[0]
+        move = self.queenMovesTranslator.decode(action)
 
         is_queen_move = move is not None
         
         # Sequentially check all encodings
         if not move:
-            move = self.knightMoveEncoding.decode(move)
+            move = self.knightMovesTranslator.decode(action)
 
         if not move:
-            move = self.underPromotionEncoding.decode(move)
+            move = self.underpromotionTranslator.decode((action, turn))
 
         if not move:
             raise ValueError(f"{move} is not a valid action.")
 
         # Reorient action if player black
         if turn == chess.BLACK:
-            move = utils.rotate(move)
+            move = rotate(move)
 
         # Moving a pawn to the opponent's home rank with a queen move is automatically assumed to be a queen underpromotion.
         # Add this situation manually because the QueenMoves class has no access to board state or piece type
@@ -107,7 +108,7 @@ class QueenMovesTranslator(MoveTranslator):
     def __init__(self):
         self._TYPE_OFFSET = 0
         self._NUM_TYPES = 56
-        self._DIRECTIONS = utils.IndexedTuple(
+        self._DIRECTIONS = IndexedTuple(
             (0, 1),  # N
             (1, 1),  # NE
             (1, 0),  # E
@@ -122,7 +123,7 @@ class QueenMovesTranslator(MoveTranslator):
         """
         Encode a queen move into action index representation, if possible, else returns None
         """
-        from_rank, from_file, to_rank, to_file = utils.unpack(move)
+        from_rank, from_file, to_rank, to_file = unpack(move)
         delta = (to_rank - from_rank, to_file - from_file)
 
         # Determine whether horizontal, vertical, diagonal, queen move promotion
@@ -171,14 +172,14 @@ class QueenMovesTranslator(MoveTranslator):
         to_rank = from_rank + delta_rank
         to_file = from_file + delta_file
 
-        move = utils.pack(from_rank, from_file, to_rank, to_file)
+        move = pack(from_rank, from_file, to_rank, to_file)
         return move
 
 class KnightMovesTranslator(MoveTranslator):
     def __init__(self):
         self._TYPE_OFFSET = 56
         self._NUM_TYPES = 8
-        self._DIRECTIONS = utils.IndexedTuple(
+        self._DIRECTIONS = IndexedTuple(
             (2, 1),
             (1, 2),
             (-1, 2),
@@ -194,7 +195,7 @@ class KnightMovesTranslator(MoveTranslator):
         Encodes the given move as knight move, if possible, else returns None
         """
         
-        from_rank, from_file, to_rank, to_file = utils.unpack(move)
+        from_rank, from_file, to_rank, to_file = unpack(move)
         delta = (to_rank - from_rank, to_file - from_file)
         is_knight_move = delta in self._DIRECTIONS
         if not is_knight_move:
@@ -204,7 +205,7 @@ class KnightMovesTranslator(MoveTranslator):
         move_type = self._TYPE_OFFSET + knight_move_type
 
         action = np.ravel_multi_index(
-            multi_index = ((move_type, from_rank, to_file)),
+            multi_index = ((move_type, from_rank, from_file)),
             dims = (73, 8, 8)
         )
 
@@ -228,14 +229,14 @@ class KnightMovesTranslator(MoveTranslator):
         to_rank = from_rank + delta_rank
         to_file = from_file + delta_file
 
-        move = utils.pack(from_rank, from_file, to_rank, to_file)
+        move = pack(from_rank, from_file, to_rank, to_file)
         return move
 
 class UnderpromotionsTranslator(MoveTranslator):
     def __init__(self):
         self._TYPE_OFFSET = 64
         self._NUM_TYPES = 9 # 3 directions * 3 piece types
-        self._DIRECTIONS = utils.IndexedTuple(-1, 0, 1)
+        self._DIRECTIONS = IndexedTuple(-1, 0, 1)
         self._PROMOTIONS = [
             chess.KNIGHT,
             chess.BISHOP,
@@ -243,12 +244,8 @@ class UnderpromotionsTranslator(MoveTranslator):
         ]
 
     def encode(self, move: chess.Move) -> int:
-        """
-        Encodes the given underpromotion move, if possible, else return None
-        """
-
-        from_rank, from_file, to_rank, to_file = utils.unpack(move)
-        is_underpromotion = (move.promotion in self._PROMOTIONS and from_rank == 6 and to_rank == 7)
+        from_rank, from_file, to_rank, to_file = unpack(move)
+        is_underpromotion = (move.promotion in self._PROMOTIONS and (from_rank == 6 and to_rank == 7) or (from_rank == 1 and to_rank == 0))
         if not is_underpromotion:
             return None
         
@@ -271,13 +268,8 @@ class UnderpromotionsTranslator(MoveTranslator):
         
         return action
 
-    def decode(self, move: int) -> chess.Move:
-        """
-        Decodes the given action index into a knight move, if possible, else returns None
-        """
-
-        move_type, from_rank, from_file = np.unravel_index(move, (73, 8, 8))
-
+    def decode(self, move: tuple([int, chess.Color])) -> chess.Move:
+        move_type, from_rank, from_file = np.unravel_index(move[0], (73, 8, 8))
         is_underpromotion = (
         self._TYPE_OFFSET <= move_type
         and move_type < self._TYPE_OFFSET + self._NUM_TYPES
@@ -294,12 +286,14 @@ class UnderpromotionsTranslator(MoveTranslator):
         )
 
         direction = self._DIRECTIONS[direction_idx]
+        # print(direction)
         promotion = self._PROMOTIONS[promotion_idx]
 
-        to_rank = from_rank + 1
+        to_rank = from_rank + 1 if move[1] == chess.WHITE else from_rank - 1
         to_file = from_file + direction
+        print(to_rank)
 
-        move = utils.pack(from_rank, from_file, to_rank, to_file)
-        move.promotion = promotion
+        ret = pack(from_rank, from_file, to_rank, to_file)
+        ret.promotion = promotion
 
-        return move
+        return ret
