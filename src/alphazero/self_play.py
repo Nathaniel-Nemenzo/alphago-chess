@@ -6,9 +6,10 @@ Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 
 import copy
 import torch
+import tqdm
 
 from alphazero.game import game
-from mcts.mcts import MonteCarloTreeSearch
+from mcts import MonteCarloTreeSearch
 
 def start():
     SelfPlayWorker.start()
@@ -54,20 +55,33 @@ class SelfPlayWorker:
         self.old_model.load_state_dict(self.model.state_dict())
 
         self.args = args
-        self.examples = []
+        self.training_example_history = []
         
         # We want our model and old model in evalulation mode, because we are using model outputs in MCTS
         self.model.eval()
         self.old_model.eval()
 
     def start(self):
-        """
-        Begin policy iteration through self play (as described above)
+        """Perform num_iterations iterations with num_eps episodes of self-play in each iteration. After every iteration, it retrains the neural network with the examples in the stored training examples. It then pits the new neural network against the old one and accepts it only if it wins update_threshold fraction of games.
         """
 
-        for i in range(self.args.iterations):
-            for e in range(self.args.episodes):
-                examples += self.episode()
+        # Perform num_iters iterations
+        for i in range(self.args.num_iters):
+            # Save training examples per iteration
+            iteration_training_examples = []
+
+            # 
+            for _ in tqdm(range(self.args.num_eps), desc = "self play"):
+                # Reset the search tree for each game
+                self.mcts = MonteCarloTreeSearch(self.model, self.args)
+                iteration_training_examples += self.episode()
+
+            # Save the iteration examples to the history
+            self.training_example_history.append(iteration_training_examples)
+
+            # Save the training examples
+
+            # Shuffle examples
     
     def episode(self):
         """
@@ -105,18 +119,14 @@ class SelfPlayWorker:
             if r != None:
                 return [(x[0], x[1], r * ((-1) ** (x[0].turn != board.turn))) for x in examples]
 
-    def learn(self):
-        """Perform num_iterations iterations with num_eps episodes of self-play in each iteration. After every iteration, it retrains the neural network with the examples in the stored training examples. It then pits the new neural network against the old one and accepts it only if it wins update_threshold fraction of games.
-        """
-        for i in range(self.args.num_iters):
-            # Examples
-        pass
-
     def train(self):
         """
         Train the model stored by this class on the training examples stored by this class. 
         """
         return NotImplemented
-
-    def pit(self, updated_model):
-        return NotImplemented
+    
+    def saveTrainingExamples(self, iteration):
+        pass
+    
+    def loadTrainingExamples(self):
+        pass

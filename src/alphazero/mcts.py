@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 from math import sqrt
-from alphazero.game.chess.chess import ChessGame
+from alphazero.game.game import Game
 
 class MonteCarloTreeSearch:
     """
@@ -35,7 +35,7 @@ class MonteCarloTreeSearch:
         self.P_s = {}
 
         # Start a new game (each game coincides with one MCTS instance)
-        self.game = ChessGame
+        self.game = Game()
 
     def search(self, board: chess.Board):
         """
