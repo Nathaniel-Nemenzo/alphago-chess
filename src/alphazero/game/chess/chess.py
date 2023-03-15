@@ -39,10 +39,10 @@ class ChessGame():
         if self.gameEnded(board):
             if board.result() == "1-0":
                 # White won
-                return 1 if board.turn == chess.BLACK else -1
+                return 1 if board.turn == chess.WHITE else -1
             elif board.result() == "0-1":
                 # Black won
-                return 1 if board.turn == chess.WHITE else -1
+                return 1 if board.turn == chess.BLACK else -1
             else:
                 return 0
         return None
@@ -90,5 +90,3 @@ class ChessGame():
             _type_: 'Default' chess.Board instance
         """
         return chess.Board()
-    
-    def 

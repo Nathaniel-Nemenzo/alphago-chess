@@ -1,5 +1,7 @@
 """
 Encapsulates worker to generate training examples from self-play using neural network-aided Monte Carlo tree search.
+
+Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 """
 
 import copy
@@ -84,17 +86,31 @@ class SelfPlayWorker:
             temp = int(step < self.args.temp_threshold)
 
             # Put first training example in examples (the reward can not yet be determined because the game is not finished.)
-            improved_policy = self.mcts.getActionProb(board, temp = temp)
+            improved_policy = self.mcts.improvedPolicy(board, temp = temp)
 
             # Append the improved policy to our training examples
-            examples.append([])
+            examples.append([self.game.getBoard(board), improved_policy.reshape(1, -1), None])
 
             # Now, sample an action from the improved policy
             # Switch to Tensor implementation
-            a = random.choice(policy.shape[1], p = policy)
+            a = torch.multinomial(improved_policy, num_samples = 1, replacement = False)
 
             # Get the next state with the action
+            board = self.game.nextState(board, a)
 
+            # Determine whether the game has ended 
+            r = self.game.gameRewards(board)
+
+            # Put the reward in the training examples
+            if r != None:
+                return [(x[0], x[1], r * ((-1) ** (x[0].turn != board.turn))) for x in examples]
+
+    def learn(self):
+        """Perform num_iterations iterations with num_eps episodes of self-play in each iteration. After every iteration, it retrains the neural network with the examples in the stored training examples. It then pits the new neural network against the old one and accepts it only if it wins update_threshold fraction of games.
+        """
+        for i in range(self.args.num_iters):
+            # Examples
+        pass
 
     def train(self):
         """

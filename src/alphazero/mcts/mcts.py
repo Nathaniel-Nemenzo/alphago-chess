@@ -72,7 +72,8 @@ class MonteCarloTreeSearch:
             p_sum = torch.sum(p)
             if p_sum <= 0:
                 p += mask
-            p /= p_sum
+            
+            p = torch.softmax(p)
 
             self.P_s[s] = p
             self.N_s[s] = 0
@@ -82,7 +83,7 @@ class MonteCarloTreeSearch:
         for a in legal_moves:
             if (s, a) not in self.Q_sa:
                 self.Q_sa[(s, a)] = 0
-                self.N_sa[(s, a)] = 0
+                self.N_sa[(s, a)] = 0        
 
         cur_best_u = float('-inf')
         best_a = -1
@@ -94,14 +95,21 @@ class MonteCarloTreeSearch:
                 cur_best_u = u
                 best_a = a
 
+        # (s, best_a) represents the best action to take from the current node with the current thread.
+        # We must use virtual loss to lower the probability of other threads taking this (s, a) pair.
+        # self.Q_sa[(s, best_a)] -= self.args.virtual_loss
+
         # Recurse on the resulting state
         next_s = self.game.nextState(board, best_a)
 
         # Get the value of the action from this state
         v = self.search(next_s)
 
+        # Before updating Q values, remove the virtual loss from this action.
+        # self.Q_sa[(s, best_a)] += self.args.virtual_loss
+
         # Update Q values and visit counts for the sampled action
-        self.Q_sa[(s, best_a)] = (self.N_sa[(s, best_a)] * self.Q_sa[(s, best_a)] * v) / (self.N_sa[(s, best_a)] + 1)
+        self.Q_sa[(s, best_a)] = (self.N_sa[(s, best_a)] * self.Q_sa[(s, best_a)] + v) / (self.N_sa[(s, best_a)] + 1)
         self.N_sa[(s, best_a)] += 1
 
         # Update the number of times we have visited this state
@@ -135,11 +143,9 @@ class MonteCarloTreeSearch:
         
         # If the temperature != 0, apply the temperature over all counts
         probs = counts ** (1. / temp)
-        probs_sum = torch.sum(probs)
-        if probs_sum <= 0:
-            probs += counts
-            probs_sum = torch.sum(probs)
-        probs /= probs_sum
-        return probs.reshape(1, -1)
+
+        # Normalize the probabilities
+        probs = torch.softmax(probs)
+        return probs
         
             
