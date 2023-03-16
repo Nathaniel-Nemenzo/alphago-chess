@@ -7,37 +7,45 @@ class Game:
         pass
 
     @abstractmethod
-    def getInitBoard(self):
+    def getInitBoard(self) -> any:
         pass
 
     @abstractmethod
-    def getBoardSize(self):
+    def getBoardSize(self) -> tuple:
         pass
 
     @abstractmethod
-    def getActionSize(self):
+    def getActionSize(self) -> int:
         pass
 
     @abstractmethod
-    def getNextState(self, board, player, action):
+    def getNextState(self, board, action) -> any:
         pass
 
     @abstractmethod
-    def getValidMoves(self, board, player):
+    def getValidMoves(self, board) -> list[torch.Tensor]:
         pass
     
     @abstractmethod
-    def getGameEnded(self, board, player):
+    def getGameEnded(self, board) -> bool:
+        pass
+
+    # @abstractmethod
+    # def getCanonicalForm(self, board, player) -> any:
+    #     pass
+
+    @abstractmethod
+    def getRewards(self, board) -> int:
         pass
 
     @abstractmethod
-    def getCanonicalForm(self, board, player):
+    def getSymmetries(self, board, pi) -> list[torch.Tensor]:
         pass
 
     @abstractmethod
-    def getSymmetries(self, board, pi):
+    def stringRepresentation(self, board) -> str:
         pass
 
     @abstractmethod
-    def stringRepresentation(self, board):
+    def checkIfValid(self, board, action) -> bool:
         pass

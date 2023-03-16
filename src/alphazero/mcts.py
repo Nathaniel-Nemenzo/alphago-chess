@@ -11,12 +11,18 @@ import torch.nn as nn
 from math import sqrt
 from alphazero.game.game import Game
 
+from alphazero.game.board_translator import BoardTranslator
+from alphazero.game.move_translator import MoveTranslator
+
 class MonteCarloTreeSearch:
     """
     Handles Monte Carlo tree search
     """
     def __init__(self, 
                  model: nn.Module, 
+                 game: Game,
+                 board_translator: BoardTranslator,
+                 move_translator: MoveTranslator,
                  args):
         self.model = model
         self.args = args
@@ -34,8 +40,9 @@ class MonteCarloTreeSearch:
         # This is normalized over the valid actions
         self.P_s = {}
 
-        # Start a new game (each game coincides with one MCTS instance)
-        self.game = Game()
+        self.game = game
+        self.board_translator = board_translator
+        self.move_translator = move_translator
 
     def search(self, board: chess.Board):
         """
@@ -56,12 +63,12 @@ class MonteCarloTreeSearch:
         legal_moves = torch.Tensor(self.game.getValidActions(board))
 
         # Check if the game is over and propagate the values upward
-        if self.game.gameEnded(board):
+        if self.game.getGameEnded(board):
             return -self.game.getRewards(board)
 
         # Check if this is a leaf node (not visited yet)
         if s not in self.P_s:
-            p, v = self.model.forward(self.game.getBoard(board))
+            p, v = self.model.forward(self.board_translator.encode(board))
 
             # Mask invalid values using a mask tensor
             mask = torch.zeros(p.shape)
@@ -99,8 +106,11 @@ class MonteCarloTreeSearch:
         # We must use virtual loss to lower the probability of other threads taking this (s, a) pair.
         # self.Q_sa[(s, best_a)] -= self.args.virtual_loss
 
+        # Decode the action to game representation
+        best_a = self.move_translator.decode(best_a)
+
         # Recurse on the resulting state
-        next_s = self.game.nextState(board, best_a)
+        next_s = self.game.getNextState(board, best_a)
 
         # Get the value of the action from this state
         v = self.search(next_s)

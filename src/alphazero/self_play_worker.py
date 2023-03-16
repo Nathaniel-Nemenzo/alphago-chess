@@ -4,15 +4,15 @@ Encapsulates worker to generate training examples from self-play using neural ne
 Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 """
 
-import copy
+import os
 import torch
 import tqdm
 
+from alphazero.replay_buffer import ReplayBuffer
 from alphazero.game import game
+from game.board_translator import BoardTranslator
+from game.move_translator import MoveTranslator
 from mcts import MonteCarloTreeSearch
-
-def start():
-    SelfPlayWorker.start()
 
 class SelfPlayWorker:
     """
@@ -31,8 +31,11 @@ class SelfPlayWorker:
     """
     def __init__(self, 
                  game: game.Game, 
-                 model: torch.nn.Module, 
-                 args):
+                 latest_model: torch.nn.Module, 
+                 replay_buffer: ReplayBuffer,
+                 board_translator: BoardTranslator,
+                 move_translator: MoveTranslator,
+                 args: dict):
         """
         Initialize this worker.
 
@@ -47,19 +50,13 @@ class SelfPlayWorker:
         """
 
         self.game = game
-        self.model = model
-        self.mcts = MonteCarloTreeSearch()
-        
-        # Store the current model
-        self.old_model = copy.deepcopy(model)
-        self.old_model.load_state_dict(self.model.state_dict())
-
+        self.latest_model = latest_model
+        self.mcts = MonteCarloTreeSearch(latest_model, game, board_translator, move_translator, args)
+        self.replay_buffer = replay_buffer
         self.args = args
-        self.training_example_history = []
-        
+
         # We want our model and old model in evalulation mode, because we are using model outputs in MCTS
-        self.model.eval()
-        self.old_model.eval()
+        self.latest_model.eval()
 
     def start(self):
         """Perform num_iterations iterations with num_eps episodes of self-play in each iteration. After every iteration, it retrains the neural network with the examples in the stored training examples. It then pits the new neural network against the old one and accepts it only if it wins update_threshold fraction of games.
@@ -67,21 +64,24 @@ class SelfPlayWorker:
 
         # Perform num_iters iterations
         for i in range(self.args.num_iters):
-            # Save training examples per iteration
-            iteration_training_examples = []
 
-            # 
+            # Keep track of the training examples for each iteration
+            iteration_examples = []
+
+            # Training episodes
             for _ in tqdm(range(self.args.num_eps), desc = "self play"):
-                # Reset the search tree for each game
-                self.mcts = MonteCarloTreeSearch(self.model, self.args)
-                iteration_training_examples += self.episode()
+                # Reset the search tree for each episode
+                self.mcts = MonteCarloTreeSearch(self.latest_model, self.game, self.board_translator, self.move_translator, self.args)
 
-            # Save the iteration examples to the history
-            self.training_example_history.append(iteration_training_examples)
+                # Add the training examples from each episode to the replay buffer
+                examples = self.episode()
+                self.replay_buffer.extend(examples)
 
-            # Save the training examples
+                # Add the training examples from this episode to the iteration examples
+                iteration_examples.append(examples)
 
-            # Shuffle examples
+            # Save the iteration examples
+            self.save_training_examples(iteration_examples, i)
     
     def episode(self):
         """
@@ -118,15 +118,32 @@ class SelfPlayWorker:
             # Put the reward in the training examples
             if r != None:
                 return [(x[0], x[1], r * ((-1) ** (x[0].turn != board.turn))) for x in examples]
+            
+    def save_training_examples(self, iteration_examples, iteration):
+        # Get the current file's directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Create the '../../data' directory if it doesn't exist
+        data_dir = os.path.join(current_dir, '..', '..', self.args.training_data_path)
+        os.makedirs(data_dir, exist_ok=True)
 
-    def train(self):
-        """
-        Train the model stored by this class on the training examples stored by this class. 
-        """
-        return NotImplemented
-    
-    def saveTrainingExamples(self, iteration):
-        pass
-    
-    def loadTrainingExamples(self):
-        pass
+        # Construct the filename
+        filename = f'iteration_examples_{iteration}.pt'
+
+        # Save the training examples as a PyTorch file
+        torch.save(iteration_examples, os.path.join(data_dir, filename))
+
+    def load_training_examples(self, iteration):
+        # Get the current file's directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Construct the data directory path
+        data_dir = os.path.join(current_dir, '..', '..', self.args.training_data_path)
+
+        # Construct the filename
+        filename = f'iteration_examples_{iteration}.pt'
+
+        # Load the training examples from the PyTorch file
+        iteration_examples = torch.load(os.path.join(data_dir, filename))
+
+        return iteration_examples
