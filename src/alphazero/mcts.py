@@ -80,7 +80,7 @@ class MonteCarloTreeSearch:
             if p_sum <= 0:
                 p += mask
             
-            p = torch.softmax(p)
+            p /= torch.sum(p)
 
             self.P_s[s] = p
             self.N_s[s] = 0
@@ -129,14 +129,14 @@ class MonteCarloTreeSearch:
     
     def improvedPolicy(self, board: chess.Board, temp = 1):
         """
-        Performs numSimulations simulations of MCTS starting from the given state.
+        Performs num_mcts_simulations simulations of MCTS starting from the given state.
 
         Returns:
             probs: a policy tensor of  where the probability of the ith action is proportional to N_sa[(s, a)] ** (1./temp)
         """
         
         # Perform simulations
-        for _ in range(self.args.numSimulations):
+        for _ in range(self.args.num_mcts_simulations):
             self.search(board)
 
         s = board.fen()

@@ -7,6 +7,7 @@ Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 import os
 import torch
 import tqdm
+import queue
 
 from alphazero.replay_buffer import ReplayBuffer
 from alphazero.game import game
@@ -31,7 +32,8 @@ class SelfPlayWorker:
     """
     def __init__(self, 
                  game: game.Game, 
-                 latest_model: torch.nn.Module, 
+                 accepted_model_queue: queue.Queue,
+                 training_model_queue: queue.Queue,
                  replay_buffer: ReplayBuffer,
                  board_translator: BoardTranslator,
                  move_translator: MoveTranslator,
@@ -50,38 +52,51 @@ class SelfPlayWorker:
         """
 
         self.game = game
-        self.latest_model = latest_model
-        self.mcts = MonteCarloTreeSearch(latest_model, game, board_translator, move_translator, args)
+        self.accepted_model_queue = accepted_model_queue
+        self.training_model_queue = training_model_queue
+
+        self.mcts = None
         self.replay_buffer = replay_buffer
+        self.board_translator = board_translator
+        self.move_translator = move_translator
         self.args = args
 
-        # We want our model and old model in evalulation mode, because we are using model outputs in MCTS
-        self.latest_model.eval()
-
     def start(self):
-        """Perform num_iterations iterations with num_eps episodes of self-play in each iteration. After every iteration, it retrains the neural network with the examples in the stored training examples. It then pits the new neural network against the old one and accepts it only if it wins update_threshold fraction of games.
+        """Perform num_iterations iterations with num_eps episodes of self-play in each iteration. Training examples with the improved policy from MCTS are generated here.
         """
+        while True:
+            # Check for the latest model in the accepted queue
+            try:
+                latest_model = self.accepted_model_queue.get(timeout = self.args.accepted_model_queue_timeout)
+            except queue.Empty:
+                continue
 
-        # Perform num_iters iterations
-        for i in range(self.args.num_iters):
+            # Set the model to evaluation model
+            latest_model.eval()
 
-            # Keep track of the training examples for each iteration
-            iteration_examples = []
+            # Perform num_iters iterations
+            for i in range(self.args.num_self_play_iterations):
 
-            # Training episodes
-            for _ in tqdm(range(self.args.num_eps), desc = "self play"):
-                # Reset the search tree for each episode
-                self.mcts = MonteCarloTreeSearch(self.latest_model, self.game, self.board_translator, self.move_translator, self.args)
+                # Keep track of the training examples for each iteration
+                iteration_examples = []
 
-                # Add the training examples from each episode to the replay buffer
-                examples = self.episode()
-                self.replay_buffer.extend(examples)
+                # Training episodes
+                for _ in tqdm(range(self.args.num_eps), desc = "self play"):
+                    # Reset the search tree for each episode
+                    self.mcts = MonteCarloTreeSearch(latest_model, self.game, self.board_translator, self.move_translator, self.args)
 
-                # Add the training examples from this episode to the iteration examples
-                iteration_examples.append(examples)
+                    # Add the training examples from each episode to the replay buffer
+                    examples = self.episode()
+                    self.replay_buffer.extend(examples)
 
-            # Save the iteration examples
-            self.save_training_examples(iteration_examples, i)
+                    # Add the training examples from this episode to the iteration examples
+                    iteration_examples.append(examples)
+
+                # Put the model in the training model queue to be trained
+                self.training_model_queue.put(latest_model)
+
+                # Save the iteration examples
+                save_training_examples(iteration_examples, i, self.args.training_example_path)
     
     def episode(self):
         """
@@ -119,31 +134,31 @@ class SelfPlayWorker:
             if r != None:
                 return [(x[0], x[1], r * ((-1) ** (x[0].turn != board.turn))) for x in examples]
             
-    def save_training_examples(self, iteration_examples, iteration):
-        # Get the current file's directory
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Create the '../../data' directory if it doesn't exist
-        data_dir = os.path.join(current_dir, '..', '..', self.args.training_data_path)
-        os.makedirs(data_dir, exist_ok=True)
+def save_training_examples(iteration_examples, iteration, path):
+    # Get the current file's directory
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Create the '../../data' directory if it doesn't exist
+    data_dir = os.path.join(current_dir, '..', '..', path)
+    os.makedirs(data_dir, exist_ok=True)
 
-        # Construct the filename
-        filename = f'iteration_examples_{iteration}.pt'
+    # Construct the filename
+    filename = f'iteration_examples_{iteration}.pt'
 
-        # Save the training examples as a PyTorch file
-        torch.save(iteration_examples, os.path.join(data_dir, filename))
+    # Save the training examples as a PyTorch file
+    torch.save(iteration_examples, os.path.join(data_dir, filename))
 
-    def load_training_examples(self, iteration):
-        # Get the current file's directory
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Construct the data directory path
-        data_dir = os.path.join(current_dir, '..', '..', self.args.training_data_path)
+def load_training_examples(self, iteration, path):
+    # Get the current file's directory
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Construct the data directory path
+    data_dir = os.path.join(current_dir, '..', '..', path)
 
-        # Construct the filename
-        filename = f'iteration_examples_{iteration}.pt'
+    # Construct the filename
+    filename = f'iteration_examples_{iteration}.pt'
 
-        # Load the training examples from the PyTorch file
-        iteration_examples = torch.load(os.path.join(data_dir, filename))
+    # Load the training examples from the PyTorch file
+    iteration_examples = torch.load(os.path.join(data_dir, filename))
 
-        return iteration_examples
+    return iteration_examples

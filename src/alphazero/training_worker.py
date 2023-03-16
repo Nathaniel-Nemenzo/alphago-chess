@@ -15,11 +15,11 @@ class TrainingWorker:
     def __init__(self,
                  model: nn.Module,
                  replay_buffer: ReplayBuffer,
-                 model_queue: queue.Queue,
+                 new_model_queue: queue.Queue,
                  args: dict):
         self.model = model
         self.replay_buffer = replay_buffer
-        self.model_queue = model_queue
+        self.new_model_queue = new_model_queue
         self.args = args
 
     def start(self):
@@ -27,7 +27,7 @@ class TrainingWorker:
         self.model.train()
 
         # Optimizer for model
-        optimizer = torch.optim.SGD(self.model.parameters(), lr=self.args.learning_rate, momentum = self.args.momentum)
+        optimizer = torch.optim.SGD(self.model.parameters(), lr=self.args.learning_rate, momentum = self.args.momentum, weight_decay = 1e-4)
 
         # Loss functions for policy and value
         value_loss_fn = nn.MSELoss()
@@ -63,7 +63,7 @@ class TrainingWorker:
 
             # Send the model to the evaluator every num_minibatches_to_send minibatches
             if i % self.args.num_minibatches_to_send == 0:
-                self.model_queue.put(self.model)
+                self.new_model_queue.put(self.model)
 
 class MinibatchDataset(Dataset):
     """Pytorch dataset that encapsulates minibatches that are sampled from the replay buffer used in training.

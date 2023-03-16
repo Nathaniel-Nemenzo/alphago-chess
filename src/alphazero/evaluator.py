@@ -125,7 +125,7 @@ class Evaluator:
         
 def save_accepted_model(path, model):
     # Get the current timestamp
-    now = int(time.time())
+    now = time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime())
 
     # Create the folder and the file name
     file_name = f'{now}.pt'
