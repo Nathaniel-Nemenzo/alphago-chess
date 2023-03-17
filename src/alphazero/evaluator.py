@@ -5,6 +5,7 @@ import os
 import torch
 import torch.nn as nn
 
+from common import *
 from game.game import Game
 from game.board_translator import BoardTranslator
 from game.move_translator import MoveTranslator
@@ -12,27 +13,28 @@ from game.move_translator import MoveTranslator
 class Evaluator:
     """Receives proposed new models and plays out self.args.num_evaluate_games between the new model and the old model and accepts any model that wins self.evaluation_threshold fraction of games or higher. Models that are accepted are published back to the self play worker.
 
-    If there is no current model yet (when the evaluator is first ran), the evaluator will set the current model to the received model and publish the received model directly to the accepted model queue.
+    The evaluator receives new models from the new_model_queue (which is published to by the training worker) and evaluates those models. If those models pass evaluation, the evaluator will update the shared variable for the model across the whole program with the accepted model and set a signal (two signals for the implementation, one for self play and one for training) telling all workers that a new model has been accepted. Then, the evaluator will wait until all workers have updated to the new model. Finally, the evaluator will unset the signals and continue.
     """
     def __init__(self, 
+                 shared_variables: dict,
                  initial_model: nn.Module,
                  board_translator: BoardTranslator,
                  move_translator: MoveTranslator,
                  new_model_queue: queue.Queue,
-                 accepted_model_queue: queue.Queue,
                  game: Game,
                  args: dict):
+        self.shared_variables = shared_variables
         self.current_model = initial_model
         self.board_translator = board_translator
         self.move_translator = move_translator
         self.new_model_queue = new_model_queue
-        self.accepted_model_queue = accepted_model_queue
         self.game = game
         self.args = args
 
     def start(self) -> None:
         """Start the evaluator. Checks for models in the new_model_queue and runs evaluate() to evaluate new models. If accepted, publishes the model to the accepted_model_queue.
         """
+        
         while True:
             # Check for new models in the queue
             try:
@@ -46,8 +48,28 @@ class Evaluator:
                 # If the new model passes evaluation, update the current model to the new model
                 self.current_model.load_state_dict(new_model_candidate.state_dict())
 
-                # Publish the model to the accepted model queue
-                self.accepted_model_queue.put(new_model_candidate)
+                # Set the shared variable to the new model
+                self.shared_variables[MODEL].load_state_dict(new_model_candidate.state_dict())
+
+                # Set the signal that new model has been accepted for both types of workers
+                self.shared_variables[SELF_PLAY_SIGNAL] = 1
+                self.shared_variables[TRAINING_SIGNAL] = 1
+
+                # Keep track of the old value of the variables keeping track of how many workers have updated
+                num_self_play_workers = self.shared_variables[NUM_SELF_PLAY_WORKERS]
+                num_training_workers = self.shared_variables[NUM_TRAINING_WORKERS]
+
+                # Wait for all models to update their internal models before setting the flag back to 0
+                while self.shared_variables[NUM_SELF_PLAY_WORKERS] > 0 and self.shared_variables[NUM_TRAINING_WORKERS] > 0:
+                    time.sleep(30)
+
+                # Unset the signals
+                self.shared_variables[SELF_PLAY_SIGNAL] = 0
+                self.shared_variables[TRAINING_SIGNAL] = 0
+
+                # Reset the variables keeping track of how many workers have updated
+                self.shared_variables[NUM_SELF_PLAY_WORKERS] = num_self_play_workers
+                self.shared_variables[NUM_TRAINING_WORKERS] = num_training_workers
 
                 # Save the accepted model
                 save_accepted_model(self.args.accepted_model_path, new_model_candidate)

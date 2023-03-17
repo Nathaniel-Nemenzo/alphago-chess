@@ -7,8 +7,8 @@ Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 import os
 import torch
 import tqdm
-import queue
 
+from common import *
 from alphazero.replay_buffer import ReplayBuffer
 from alphazero.game import game
 from game.board_translator import BoardTranslator
@@ -31,9 +31,8 @@ class SelfPlayWorker:
 
     """
     def __init__(self, 
+                 shared_variables: dict,
                  game: game.Game, 
-                 accepted_model_queue: queue.Queue,
-                 training_model_queue: queue.Queue,
                  replay_buffer: ReplayBuffer,
                  board_translator: BoardTranslator,
                  move_translator: MoveTranslator,
@@ -50,10 +49,8 @@ class SelfPlayWorker:
                 - mcts_simulations
                 - temp_threshold
         """
-
+        self.shared_variables = shared_variables
         self.game = game
-        self.accepted_model_queue = accepted_model_queue
-        self.training_model_queue = training_model_queue
 
         self.mcts = None
         self.replay_buffer = replay_buffer
@@ -64,41 +61,44 @@ class SelfPlayWorker:
     def start(self):
         """Perform num_iterations iterations with num_eps episodes of self-play in each iteration. Training examples with the improved policy from MCTS are generated here.
         """
+        model = None
+        i = 0
+
         while True:
-            # Check for the latest model in the accepted queue
-            try:
-                latest_model = self.accepted_model_queue.get(timeout = self.args.accepted_model_queue_timeout)
-            except queue.Empty:
-                continue
+            # Check if a new model has been accepted or it is the first iteration of the algorithm
+            if self.shared_variables[SELF_PLAY_SIGNAL] or i == 0:
+                # Update the model with the shared variable
+                model = self.shared_variables[MODEL]
 
-            # Set the model to evaluation model
-            latest_model.eval()
+                # Decrement the counter for the number of workers that have updated the model
+                # We don't want to do this on the 0th iteration, because the self-play worker kicks off everything.
+                if i > 0:
+                    self.shared_variables[NUM_SELF_PLAY_WORKERS] -= 1
 
-            # Perform num_iters iterations
-            for i in range(self.args.num_self_play_iterations):
+                # Set model to evaluation model
+                model.eval()
 
-                # Keep track of the training examples for each iteration
-                iteration_examples = []
+            # Keep track of the training examples for each iteration
+            iteration_examples = []
 
-                # Training episodes
-                for _ in tqdm(range(self.args.num_eps), desc = "self play"):
-                    # Reset the search tree for each episode
-                    self.mcts = MonteCarloTreeSearch(latest_model, self.game, self.board_translator, self.move_translator, self.args)
+            # Training episodes
+            for _ in tqdm(range(self.args.num_eps), desc = "self play"):
+                # Reset the search tree for each episode
+                mcts = MonteCarloTreeSearch(model, self.game, self.board_translator, self.move_translator, self.args)
 
-                    # Add the training examples from each episode to the replay buffer
-                    examples = self.episode()
-                    self.replay_buffer.extend(examples)
+                # Add the training examples from each episode to the replay buffer
+                examples = self.episode(mcts)
+                self.replay_buffer.extend(examples)
 
-                    # Add the training examples from this episode to the iteration examples
-                    iteration_examples.append(examples)
+                # Add the training examples from this episode to the iteration examples
+                iteration_examples.append(examples)
 
-                # Put the model in the training model queue to be trained
-                self.training_model_queue.put(latest_model)
+            # Save the iteration examples
+            save_training_examples(iteration_examples, i, self.args.training_example_path)
 
-                # Save the iteration examples
-                save_training_examples(iteration_examples, i, self.args.training_example_path)
+            i += 1
     
-    def episode(self):
+    def episode(self, mcts):
         """
         Execute one episode of MCTS self-play. Each turn is added as a training example to the stored examples. The game is played
         until end. After the game ends, the outcome is used to assign values to each examples in the stored examples
@@ -115,7 +115,7 @@ class SelfPlayWorker:
             temp = int(step < self.args.temp_threshold)
 
             # Put first training example in examples (the reward can not yet be determined because the game is not finished.)
-            improved_policy = self.mcts.improvedPolicy(board, temp = temp)
+            improved_policy = mcts.improvedPolicy(board, temp = temp)
 
             # Append the improved policy to our training examples
             examples.append([self.game.getBoard(board), improved_policy.reshape(1, -1), None])
