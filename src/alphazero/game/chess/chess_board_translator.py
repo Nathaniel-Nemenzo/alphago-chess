@@ -28,12 +28,13 @@ class ChessBoardTranslator(BoardTranslator):
         BoardTranslator (_type_): _description_
         
     """
-    def __init__(self, k = 8):
+    def __init__(self, device: torch.device, k: int = 8):
         """Initialize this BoardTranslator instance.
 
         Args:
             k (int, optional): The number of recent board positions to be encoded. If the history from the current state < k, then the non-filled planes are zeroed out. Defaults to 8.
         """
+        super().__init__(device)
         self.k = k
 
     def encode(self, board: chess.Board) -> torch.Tensor:
@@ -49,7 +50,7 @@ class ChessBoardTranslator(BoardTranslator):
             
             Each time step t (with k total time steps) is encoded as a (14, 8, 8) plane, with the first 6 planes encoding the active player's pieces, the next 6 planes encoding the opponent player's pieces, and the last 2 places encoding two-fold and three-fold repetitions.
         """
-        history = torch.zeros(self.k, 14, 8, 8)
+        history = torch.zeros(self.k, 14, 8, 8, device = self.device)
 
         # Move number is the counter for each turn (not for a pair of turns)
         move_number = board.fullmove_number * 2 if board.turn == chess.WHITE else board.fullmove_number * 2 - 1
@@ -62,8 +63,8 @@ class ChessBoardTranslator(BoardTranslator):
             self.__push_into_history(copy_board, history, i)
             copy_board.pop()
 
-        # Concatenate planes from the orientation of the passed in board
-        history = self.__view(history, board.turn)
+        # Concatenate planes into (14 * k, 8, 8) tensor
+        history = torch.cat(torch.unbind(history, dim = 0), dim = 0)
 
         # Add metadata about current board
         meta = self.__meta(board)
@@ -90,7 +91,7 @@ class ChessBoardTranslator(BoardTranslator):
                 - 5: opponent player queenside castling rights
                 - 6: halfmove clock
         """
-        meta = torch.zeros(7, 8, 8)
+        meta = torch.zeros(7, 8, 8, device = self.device)
 
         # Active player color
         meta[0, :, :] = int(board.turn)
@@ -110,36 +111,6 @@ class ChessBoardTranslator(BoardTranslator):
         meta[6, :, :] = board.halfmove_clock
 
         return meta
-    
-    def __view(self, 
-               board: torch.Tensor, 
-               orientation: chess.Color) -> torch.Tensor:
-        """Rotates the passed in Tensor representation of the board according to the specified orientation (if chess.Black, then we need to rotate planes and switch first 6 planes to last 6 planes for each (14, 8, 8) history step in the passed in representation).
-
-        Then, will unbind the tensor and concatenate the k (14, 8, 8) planes to form a (k * 14, 8, 8) plane.
-
-        Args:
-            board (torch.Tensor): Tensor describing the board and history. Expected to be of shape (k, 14, 8, 8)
-            orientation (chess.Color): Orientation of board (essentially whose turn iti s)
-
-        Returns:
-            torch.Tensor: (14 * k, 8, 8) tensor describing the state of the board and k history steps.
-        """
-        if orientation == chess.BLACK:
-            for board_array in board:
-                # Rotate all planes encoding the position by 180 degrees
-                rotated = torch.rot90(board_array[:12, :, :], k = 2, dims = (1, 2))
-
-                # In the buffer, the first six planes encode white's pieces;
-                # Swap with the second six planes
-                rotated = torch.roll(rotated, shifts = 6, dims = 0)
-
-                # Copy the first 12 elements of the third dimension back into the board array
-                board_array[:12, :, :] = rotated
-
-        # Concatenate k stacks of 14 planes to one stack of k * 14 planes
-        board = torch.cat(torch.unbind(board, dim = 0), dim = 0)
-        return board
 
     def __push_into_history(self, 
                             board: chess.Board, 
@@ -172,7 +143,7 @@ class ChessBoardTranslator(BoardTranslator):
         Returns:
             torch.Tensor: (14, 8, 8) tensor describing the state of the board, as above.
         """
-        tensor = torch.zeros(14, 8, 8)
+        tensor = torch.zeros(14, 8, 8, device = self.device)
 
         for square, piece in board.piece_map().items():
             rank, file = chess.square_rank(square), chess.square_file(square)
@@ -196,4 +167,4 @@ class ChessBoardTranslator(BoardTranslator):
 
     def decode(self, board: torch.Tensor) -> chess.Board:
         # TODO
-        pass
+        return NotImplementedError

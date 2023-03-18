@@ -1,10 +1,17 @@
 import torch
 
+from game.board_translator import BoardTranslator
+from game.move_translator import MoveTranslator
 from abc import ABC, abstractmethod
 
 class Game:
-    def __init__(self):
-        pass
+    def __init__(self, 
+                 device: torch.device,
+                 board_translator: BoardTranslator,
+                 move_translator: MoveTranslator):
+        self.device = device
+        self.board_translator = board_translator
+        self.move_translator = move_translator
 
     @abstractmethod
     def getInitBoard(self) -> any:
@@ -30,6 +37,10 @@ class Game:
     def getGameEnded(self, board) -> bool:
         pass
 
+    @abstractmethod
+    def getResult(self, board) -> bool:
+        pass
+
     # @abstractmethod
     # def getCanonicalForm(self, board, player) -> any:
     #     pass
@@ -48,4 +59,8 @@ class Game:
 
     @abstractmethod
     def checkIfValid(self, board, action) -> bool:
+        pass
+
+    @abstractmethod
+    def getCurrentPlayer(self, board) -> bool:
         pass

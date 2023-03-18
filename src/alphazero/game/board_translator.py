@@ -5,11 +5,13 @@ from abc import ABC, abstractmethod
 class BoardTranslator(ABC):
     """ Class that translates a user/library defined class (like chess.Board) into a tensor according to some scheme, (like 119 x 8 x 8 tensors in [Silver et al.])
 
+    The board (and history, if necessary) is always encoded in the perspective of the first player (e.g. white in chess)
+
     Args:
         ABC (_type_): _description_
     """
-    def __init__(self):
-        pass
+    def __init__(self, device: torch.device):
+        self.device = device
 
     @abstractmethod
     def encode(self, board: any) -> torch.Tensor:

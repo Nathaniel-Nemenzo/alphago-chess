@@ -1,14 +1,18 @@
 import chess
+import torch
 
-from alphazero.game.game import Game
+from game.game import Game
 
 from .chess_board_translator import ChessBoardTranslator
 from .chess_move_translator import ChessMoveTranslator
 
-board_translator = ChessBoardTranslator
-move_translator = ChessMoveTranslator
-
 class ChessGame(Game):
+    def __init__(self, 
+                 device: torch.device,
+                 board_translator: ChessBoardTranslator,
+                 move_translator: ChessMoveTranslator):
+        super().__init__(device, board_translator, move_translator)
+
     def getInitBoard(self) -> chess.Board:
         """Gets a new board (creates a new Chess game)
 
@@ -39,7 +43,8 @@ class ChessGame(Game):
         Returns:
             chess.Board: State of the board after the action is taken
         """
-        move = move_translator.decode(a)
+        # Decide the move represents a pawn move to the edge ranks (queen promotion)
+        move = self.move_translator.decode(a, board)
         board.push(move)
         return board
     
@@ -52,7 +57,7 @@ class ChessGame(Game):
         Returns:
             List[Tensor]: List representing the encoded states of the board
         """
-        return [move_translator.encode(move) for move in board.legal_moves if board.color_at(move.from_square) == board.turn]
+        return list(board.legal_moves)
 
     def getGameEnded(self, board):
         """Returns whether or not a passed in game is over
@@ -64,23 +69,26 @@ class ChessGame(Game):
             _type_: _description_
         """
         return board.is_game_over()
+    
+    def getResult(self, board: chess.Board) -> bool:
+        return board.result()
 
-    def getRewards(self, board):
-        """Returns the rewards of a passed in terminal state
+    def getRewards(self, board: chess.Board):
+        """Returns the rewards of a passed in terminal state. If the white player wins, a reward of 1 is returned. If the black player wins, a reward of 0 is returned.
 
         Args:
             board (_type_): Board instance to get the reward from
 
         Returns:
-            _type_: 1 representing a win for the active player, -1 representin ga loss for the active player, and 0 representing a tie for the active player
+            _type_: 1 representing a win for white, -1 representing a win for black, and 0 representing a draw.
         """
-        if self.gameEnded(board):
+        if self.getGameEnded(board):
             if board.result() == "1-0":
                 # White won
-                return 1 if board.turn == chess.WHITE else -1
+                return 1 if board.turn == True else -1
             elif board.result() == "0-1":
                 # Black won
-                return 1 if board.turn == chess.BLACK else -1
+                return -1 if board.turn == False else -1
             else:
                 return 0
         return None
@@ -110,3 +118,6 @@ class ChessGame(Game):
     
     def checkIfValid(self, board: chess.Board, action: chess.Move) -> bool:
         return board.is_legal(action)
+    
+    def getCurrentPlayer(self, board: chess.Board) -> bool:
+        return board.turn

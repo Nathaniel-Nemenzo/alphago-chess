@@ -16,6 +16,7 @@ class Evaluator:
     The evaluator receives new models from the new_model_queue (which is published to by the training worker) and evaluates those models. If those models pass evaluation, the evaluator will update the shared variable for the model across the whole program with the accepted model and set a signal (two signals for the implementation, one for self play and one for training) telling all workers that a new model has been accepted. Then, the evaluator will wait until all workers have updated to the new model. Finally, the evaluator will unset the signals and continue.
     """
     def __init__(self, 
+                 device: torch.device,
                  shared_variables: dict,
                  initial_model: nn.Module,
                  board_translator: BoardTranslator,
@@ -23,6 +24,7 @@ class Evaluator:
                  new_model_queue: queue.Queue,
                  game: Game,
                  args: dict):
+        self.device = device
         self.shared_variables = shared_variables
         self.current_model = initial_model
         self.board_translator = board_translator
@@ -39,6 +41,9 @@ class Evaluator:
             # Check for new models in the queue
             try:
                 new_model_candidate = self.new_model_queue.get(timeout = self.args.new_model_queue_timeout)
+
+                # Put the new model candidate on the GPU
+                new_model_candidate = new_model_candidate.to(self.device)
             except queue.Empty:
                 # Keep checking the queue if it's empty
                 continue
@@ -137,10 +142,10 @@ class Evaluator:
             current_player, next_player = next_player, current_player
 
         # At this point, the game has ended
-        result = board.result()
-        if board.result() == "1-0": # White (first player) won
+        result = self.game.getResult(board)
+        if result == "1-0": # White (first player) won
             return 1
-        elif board.result() == "0-1": # Black (second player) won
+        elif result == "0-1": # Black (second player) won
             return -1
         else:
             return 0

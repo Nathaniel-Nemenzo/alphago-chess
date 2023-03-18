@@ -17,10 +17,12 @@ class TrainingWorker:
     The training worker trains the latest accepted model. In addition, it always stays on (no training iterations). In the future, this will be limited to some training iteration limit over the entire training process.
     """
     def __init__(self,
+                 device: torch.device,
                  shared_variables: dict,
                  replay_buffer: ReplayBuffer,
                  new_model_queue: queue.Queue,
                  args: dict):
+        self.device = device
         self.shared_variables = shared_variables
         self.replay_buffer = replay_buffer
         self.new_model_queue = new_model_queue
@@ -43,6 +45,9 @@ class TrainingWorker:
             if self.shared_variables[TRAINING_SIGNAL]:
                 # Update the model with the shared variable
                 model = copy.deepcopy(self.shared_variables[MODEL])
+
+                # Put the model on the GPU
+                model = model.to(self.device)
 
                 # Decrement the counter for the number of workers that have updated the model
                 self.shared_variables[NUM_TRAINING_WORKERS] -= 1

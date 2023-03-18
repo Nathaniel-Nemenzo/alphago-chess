@@ -3,7 +3,9 @@ import chess
 import random
 from game.chess.chess_board_translator import ChessBoardTranslator
 
-translator = ChessBoardTranslator()
+device = torch.device("cpu")
+
+translator = ChessBoardTranslator(device)
 
 def assert_board_state_pre_view(tensor, i):
     # Pawns
@@ -67,33 +69,6 @@ def test_push_into_history():
     tensor = translator._ChessBoardTranslator__push_into_history(board, tensor, 1)
     assert_board_state_pre_view(tensor, 1)
 
-def test_view():
-    tensor = torch.zeros(8, 14, 8, 8)
-    board = chess.Board()
-
-    # Make 8 moves to build up history (no captures)
-    for i in range(8):
-        legal_moves = list(filter(lambda move: not board.is_capture(move), board.legal_moves)) # get all non-capture legal moves
-        if not legal_moves: # if no legal moves left, break out of the loop
-            break
-        move = random.choice(legal_moves) # choose a random non-capture legal move
-        board.push(move) # make the move on the board
-        tensor = translator._ChessBoardTranslator__push_into_history(board, tensor, i)
-
-    # Get view of board from white side
-    view = translator._ChessBoardTranslator__view(tensor, chess.WHITE)
-
-    # Check all time steps
-    for i in range(8):
-        assert_board_state_post_view(view, i)
-
-    # Get view of board from black side
-    view = translator._ChessBoardTranslator__view(tensor, chess.BLACK)
-
-    for i in range(8):
-        assert_board_state_post_view(view, i)
-
-
 def test_encode():
     board = chess.Board()
 
@@ -112,7 +87,7 @@ def test_encode():
 
     newest_state = chess.Board(board.fen())
 
-    # Encode (from black perspective)
+    # Encode
     tensor = translator.encode(board)
 
     # Check that the oldest_state and newest move encoded match the return tensor

@@ -7,6 +7,7 @@ Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 import os
 import torch
 import tqdm
+import copy
 
 from common import *
 from alphazero.replay_buffer import ReplayBuffer
@@ -31,6 +32,7 @@ class SelfPlayWorker:
 
     """
     def __init__(self, 
+                 device: torch.device,
                  shared_variables: dict,
                  game: game.Game, 
                  replay_buffer: ReplayBuffer,
@@ -49,6 +51,7 @@ class SelfPlayWorker:
                 - mcts_simulations
                 - temp_threshold
         """
+        self.device = device
         self.shared_variables = shared_variables
         self.game = game
 
@@ -68,7 +71,10 @@ class SelfPlayWorker:
             # Check if a new model has been accepted or it is the first iteration of the algorithm
             if self.shared_variables[SELF_PLAY_SIGNAL] or i == 0:
                 # Update the model with the shared variable
-                model = self.shared_variables[MODEL]
+                model = copy.deepcopy(self.shared_variables[MODEL])
+
+                # Put the model on the GPUI
+                model = model.to(self.device)
 
                 # Decrement the counter for the number of workers that have updated the model
                 # We don't want to do this on the 0th iteration, because the self-play worker kicks off everything.
@@ -84,7 +90,7 @@ class SelfPlayWorker:
             # Training episodes
             for _ in tqdm(range(self.args.num_eps), desc = "self play"):
                 # Reset the search tree for each episode
-                mcts = MonteCarloTreeSearch(model, self.game, self.board_translator, self.move_translator, self.args)
+                mcts = MonteCarloTreeSearch(self.device, model, self.game, self.board_translator, self.move_translator, self.args)
 
                 # Add the training examples from each episode to the replay buffer
                 examples = self.episode(mcts)
@@ -118,7 +124,7 @@ class SelfPlayWorker:
             improved_policy = mcts.improvedPolicy(board, temp = temp)
 
             # Append the improved policy to our training examples
-            examples.append([self.game.getBoard(board), improved_policy.reshape(1, -1), None])
+            examples.append([self.board_translator.encode(board), self.game.getCurrentPlayer(board), improved_policy.reshape(1, -1), None])
 
             # Now, sample an action from the improved policy
             # Switch to Tensor implementation
@@ -127,12 +133,13 @@ class SelfPlayWorker:
             # Get the next state with the action
             board = self.game.nextState(board, a)
 
-            # Determine whether the game has ended 
-            r = self.game.gameRewards(board)
+            # Determine whether the game has ended  
+            r = self.game.getRewards(board)
 
             # Put the reward in the training examples
             if r != None:
-                return [(x[0], x[1], r * ((-1) ** (x[0].turn != board.turn))) for x in examples]
+                # Return (board as tensor, policy, outcome)
+                return [(x[0], x[2], -r * ((-1) ** (self.game.getCurrentPlayer(x[0]) != self.game.getCurrentPlayer(board)))) for x in examples]
             
 def save_training_examples(iteration_examples, iteration, path):
     # Get the current file's directory

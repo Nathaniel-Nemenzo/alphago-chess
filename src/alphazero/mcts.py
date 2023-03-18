@@ -2,6 +2,8 @@
 Encapsulates algorithm for Neural network-aided Monte Carlo Tree Search as proposed by [Silver et al., 2017]
 
 Based on: https://github.com/suragnair/alpha-zero-general/blob/master/MCTS.py
+
+# TODO: vectorize
 """
 
 import chess
@@ -19,11 +21,13 @@ class MonteCarloTreeSearch:
     Handles Monte Carlo tree search
     """
     def __init__(self, 
+                 device: torch.device,
                  model: nn.Module, 
                  game: Game,
                  board_translator: BoardTranslator,
                  move_translator: MoveTranslator,
                  args):
+        self.device = device
         self.model = model
         self.args = args
 
@@ -57,10 +61,10 @@ class MonteCarloTreeSearch:
         """
 
         # Get unique identifier for game state
-        s = board.fen()
+        s = self.game.stringRepresentation(board)
 
         # Get all the legal moves for the current player
-        legal_moves = torch.Tensor(self.game.getValidActions(board))
+        legal_moves = torch.Tensor(self.game.getValidActions(board), device = self.device)
 
         # Check if the game is over and propagate the values upward
         if self.game.getGameEnded(board):
@@ -71,7 +75,7 @@ class MonteCarloTreeSearch:
             p, v = self.model.forward(self.board_translator.encode(board))
 
             # Mask invalid values using a mask tensor
-            mask = torch.zeros(p.shape)
+            mask = torch.zeros(p.shape, device = self.device)
             mask[0, legal_moves] = 1
             p = p * mask
 
@@ -142,7 +146,7 @@ class MonteCarloTreeSearch:
         s = board.fen()
 
         # Get (s, a) counts
-        counts = torch.Tensor([self.N_sa.get((s, a), 0) for a in range(self.game.getActionSize())])
+        counts = torch.Tensor([self.N_sa.get((s, a), 0) for a in range(self.game.getActionSize())], device = self.device)
 
         # If the temperature == 0, pick the move with the maximum counts
         if temp == 0:

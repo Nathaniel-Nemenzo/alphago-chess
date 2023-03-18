@@ -2,6 +2,7 @@
 Main entry point for running from command line
 """
 
+import torch
 import multiprocessing as mp
 import queue
 
@@ -22,6 +23,15 @@ class dotdict(dict):
         return self[name]
     
 if __name__ == "__main__":
+    # Check if GPU is available
+    device = None
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"Using GPU: {torch.cuda.get_device_name()}")
+    else:
+        device = torch.device("cpu")
+        print("Using CPU")
+
     # Set arguments
     args = dotdict({
         # Replay buffer
@@ -58,8 +68,8 @@ if __name__ == "__main__":
     replay_buffer = ReplayBuffer(args.capacity)
 
     # Create translators
-    board_translator = ChessBoardTranslator()
-    move_translator = ChessMoveTranslator()
+    board_translator = ChessBoardTranslator(device)
+    move_translator = ChessMoveTranslator(device)
 
     # Create game
     game = ChessGame()
@@ -86,9 +96,9 @@ if __name__ == "__main__":
     new_model_queue = queue.Queue()
 
     # Create workers and evaluator
-    self_play_worker = SelfPlayWorker(shared_dict, game, replay_buffer, board_translator, move_translator, args)
-    training_worker = TrainingWorker(shared_dict, replay_buffer, new_model_queue, args)
-    evaluator = Evaluator(shared_dict, model, board_translator, move_translator, new_model_queue, game, args)
+    self_play_worker = SelfPlayWorker(device, shared_dict, game, replay_buffer, board_translator, move_translator, args)
+    training_worker = TrainingWorker(device, shared_dict, replay_buffer, new_model_queue, args)
+    evaluator = Evaluator(device, shared_dict, model, board_translator, move_translator, new_model_queue, game, args)
 
     # Kick off threads for self-play, training, and evaluation
     self_play_process = mp.Process(target=self_play_worker.start)
