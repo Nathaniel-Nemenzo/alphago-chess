@@ -4,7 +4,7 @@ Main entry point for running from command line
 
 import torch
 import multiprocessing as mp
-import queue
+import logging
 
 from game.chess.chess_model import AlphaZeroNetwork
 from game.chess.chess_game import ChessGame
@@ -18,19 +18,35 @@ from replay_buffer import ReplayBuffer
 from self_play_worker import SelfPlayWorker
 from training_worker import TrainingWorker
 
+def configure_logger():
+    logging.basicConfig(
+        level=logging.DEBUG,  # Minimum log level to display
+        format="%(asctime)s - %(levelname)s - %(threadName)s - %(message)s",  # Format of the log message
+        handlers=[
+            logging.StreamHandler(),  # Log to console
+            logging.FileHandler("log.log")  # Log to file
+        ]
+    )
+
 class dotdict(dict):
     def __getattr__(self, name):
         return self[name]
     
+# Check if GPU is available
+device = None
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    print(f"Using GPU: {torch.cuda.get_device_name()}")
+else:
+    device = torch.device("cpu")
+    print("Using CPU")
+
 if __name__ == "__main__":
-    # Check if GPU is available
-    device = None
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"Using GPU: {torch.cuda.get_device_name()}")
-    else:
-        device = torch.device("cpu")
-        print("Using CPU")
+    # Configure multiprocessing
+    mp.set_start_method('spawn')
+
+    # Configure logger
+    configure_logger()
 
     # Set arguments
     args = dotdict({
@@ -64,15 +80,20 @@ if __name__ == "__main__":
         'training_example_path': 'data'
     })
 
+    # Create manager for multiprocessing
+    manager = mp.Manager()
+    buffer = manager.Queue(args.capacity)
+    shared_dict = manager.dict()
+
     # Create replay buffer
-    replay_buffer = ReplayBuffer(args.capacity)
+    replay_buffer = ReplayBuffer(buffer)
 
     # Create translators
     board_translator = ChessBoardTranslator(device)
     move_translator = ChessMoveTranslator(device)
 
     # Create game
-    game = ChessGame()
+    game = ChessGame(device, board_translator, move_translator)
 
     # Create model
     model = AlphaZeroNetwork()
@@ -86,14 +107,15 @@ if __name__ == "__main__":
     num_self_play_workers = 1
 
     # Populate shared variables
-    shared_dict[MODEL] = model
+    shared_dict[MODEL_TYPE] = type(model)
+    shared_dict[MODEL_STATE_DICT] = model.state_dict()
     shared_dict[SELF_PLAY_SIGNAL] = False
     shared_dict[TRAINING_SIGNAL] = False
     shared_dict[NUM_SELF_PLAY_WORKERS] = num_self_play_workers
     shared_dict[NUM_TRAINING_WORKERS] = num_training_workers
 
     # Create new model queue
-    new_model_queue = queue.Queue()
+    new_model_queue = mp.Queue()
 
     # Create workers and evaluator
     self_play_worker = SelfPlayWorker(device, shared_dict, game, replay_buffer, board_translator, move_translator, args)
@@ -109,3 +131,8 @@ if __name__ == "__main__":
     self_play_process.start()
     training_process.start()
     evaluator_process.start()
+
+    # Wait for processes to finish (they never will)
+    self_play_process.join()
+    training_process.join()
+    evaluator_process.join()

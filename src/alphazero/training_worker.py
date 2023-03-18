@@ -2,14 +2,14 @@
 Encapsulates worker to train the neural network based on examples collected from self-play.
 """
 
-import copy
+import logging
 import torch
 import queue
 import torch.nn as nn
 
 from common import *
 from torch.utils.data import Dataset, DataLoader
-from alphazero.replay_buffer import ReplayBuffer
+from replay_buffer import ReplayBuffer
 
 class TrainingWorker:
     """Samples minibatches of moves from the replay buffer and perform SGD to fit the model. Every self.args.num_minibatches_to_send minibatches, send the model to the evaluator.
@@ -44,10 +44,14 @@ class TrainingWorker:
             # Check if there is a new model available.
             if self.shared_variables[TRAINING_SIGNAL]:
                 # Update the model with the shared variable
-                model = copy.deepcopy(self.shared_variables[MODEL])
+                model = self.shared_variables[MODEL_TYPE]()
 
                 # Put the model on the GPU
                 model = model.to(self.device)
+                logging.info('(training) created model and put model in gpu')
+
+                model.load_state_dict(self.shared_variables[MODEL_STATE_DICT])
+                logging.info('(training) loaded state dictionary')
 
                 # Decrement the counter for the number of workers that have updated the model
                 self.shared_variables[NUM_TRAINING_WORKERS] -= 1
@@ -57,6 +61,8 @@ class TrainingWorker:
 
                 # Set the model to training mode
                 model.train()
+
+                logging.info("(training): found new model and updated local model")
 
             # Sample minibatches from replay buffer
             sample = self.replay_buffer.sample(self.args.batch_size)
@@ -86,6 +92,7 @@ class TrainingWorker:
 
             # Send the model to the evaluator every num_minibatches_to_send minibatches
             if i % self.args.num_minibatches_to_send == 0:
+                logging.info(f"(training): sending model to evaluator on iteration {i}")
                 self.new_model_queue.put(model)
 
             i += 1

@@ -1,3 +1,4 @@
+import logging
 import queue
 import tqdm
 import time
@@ -44,6 +45,8 @@ class Evaluator:
 
                 # Put the new model candidate on the GPU
                 new_model_candidate = new_model_candidate.to(self.device)
+
+                logging.info("(evaluator): found new model candidate")
             except queue.Empty:
                 # Keep checking the queue if it's empty
                 continue
@@ -54,7 +57,7 @@ class Evaluator:
                 self.current_model.load_state_dict(new_model_candidate.state_dict())
 
                 # Set the shared variable to the new model
-                self.shared_variables[MODEL].load_state_dict(new_model_candidate.state_dict())
+                self.shared_variables[MODEL_STATE_DICT] = new_model_candidate.state_dict()
 
                 # Set the signal that new model has been accepted for both types of workers
                 self.shared_variables[SELF_PLAY_SIGNAL] = 1
@@ -93,6 +96,8 @@ class Evaluator:
             # Switch player order at halfway point
             if i == halfway_point:
                 first_player, second_player = second_player, first_player
+
+            logging.info(f"(evaluator): playing game {i}")
 
             # Play a game and get the result
             result = self.play_game(first_player, second_player)

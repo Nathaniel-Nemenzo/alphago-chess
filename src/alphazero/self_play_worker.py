@@ -4,14 +4,14 @@ Encapsulates worker to generate training examples from self-play using neural ne
 Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 """
 
+import logging
 import os
 import torch
 import tqdm
-import copy
 
 from common import *
-from alphazero.replay_buffer import ReplayBuffer
-from alphazero.game import game
+from replay_buffer import ReplayBuffer
+from game import game
 from game.board_translator import BoardTranslator
 from game.move_translator import MoveTranslator
 from mcts import MonteCarloTreeSearch
@@ -71,10 +71,15 @@ class SelfPlayWorker:
             # Check if a new model has been accepted or it is the first iteration of the algorithm
             if self.shared_variables[SELF_PLAY_SIGNAL] or i == 0:
                 # Update the model with the shared variable
-                model = copy.deepcopy(self.shared_variables[MODEL])
-
-                # Put the model on the GPUI
+                model = self.shared_variables[MODEL_TYPE]()
+                
+                # Put the model on the GPU
                 model = model.to(self.device)
+                logging.info('(self play) created model and put model in gpu')
+
+                # Load the state dict of the model into the model
+                model.load_state_dict(self.shared_variables[MODEL_STATE_DICT])
+                logging.info('(self play) loaded state dictionary')
 
                 # Decrement the counter for the number of workers that have updated the model
                 # We don't want to do this on the 0th iteration, because the self-play worker kicks off everything.
@@ -84,11 +89,13 @@ class SelfPlayWorker:
                 # Set model to evaluation model
                 model.eval()
 
+                logging.info("(self play): found new model and updated local model.")
             # Keep track of the training examples for each iteration
             iteration_examples = []
 
             # Training episodes
-            for _ in tqdm(range(self.args.num_eps), desc = "self play"):
+            for i in tqdm(range(self.args.num_eps), desc = "self play"):
+                logging.info(f"(self play) starting iteration {i}")
                 # Reset the search tree for each episode
                 mcts = MonteCarloTreeSearch(self.device, model, self.game, self.board_translator, self.move_translator, self.args)
 
@@ -138,6 +145,7 @@ class SelfPlayWorker:
 
             # Put the reward in the training examples
             if r != None:
+                logging.info("(self play) finished one episode of self play")
                 # Return (board as tensor, policy, outcome)
                 return [(x[0], x[2], -r * ((-1) ** (self.game.getCurrentPlayer(x[0]) != self.game.getCurrentPlayer(board)))) for x in examples]
             

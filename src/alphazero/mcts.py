@@ -6,15 +6,15 @@ Based on: https://github.com/suragnair/alpha-zero-general/blob/master/MCTS.py
 # TODO: vectorize
 """
 
+import logging
 import chess
 import torch
 import torch.nn as nn
 
-from math import sqrt
-from alphazero.game.game import Game
-
-from alphazero.game.board_translator import BoardTranslator
-from alphazero.game.move_translator import MoveTranslator
+from numpy import sqrt
+from game.game import Game
+from game.board_translator import BoardTranslator
+from game.move_translator import MoveTranslator
 
 class MonteCarloTreeSearch:
     """
@@ -140,7 +140,8 @@ class MonteCarloTreeSearch:
         """
         
         # Perform simulations
-        for _ in range(self.args.num_mcts_simulations):
+        for i in range(self.args.num_mcts_simulations):
+            logging.info(f"(mcts): performing simulation {i}")
             self.search(board)
 
         s = board.fen()
