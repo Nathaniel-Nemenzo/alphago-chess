@@ -1,4 +1,4 @@
-# AlphaZero Implmentation and Framework
+# AlphaZero Implementation and Framework
 
 This project is meant to be a reimplementation of the [AlphaZero](https://arxiv.org/abs/1712.01815) deep reinforcement learning algortihm. In addition, the project aims to provide a framework where users can define their own models and play arbitrary games using the algorithm.
 
