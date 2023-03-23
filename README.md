@@ -14,9 +14,8 @@ This project aims to reimplement AlphaZero as closely to the original paper as p
 
 ## Roadmap
 
-1. Perform one full iteration of the AlphaZero algorithm without parallelism.
+1. Perform one full iteration of the AlphaZero algorithm
 2. Implement a game with a smaller search space, other than Chess (maybe Othello)
-3. Optimize code with parallelism (and other possible optimizations)
 4. Implement TPU support
 5. Train on GCP to see how good we can get on Chess
 
