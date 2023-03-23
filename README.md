@@ -15,13 +15,17 @@ This project aims to reimplement AlphaZero as closely to the original paper as p
 ## Roadmap
 
 1. Perform one full iteration of the AlphaZero algorithm without parallelism.
+2. Implement a game with a smaller search space, other than Chess (maybe Othello)
+3. Optimize code with parallelism (and other possible optimizations)
+4. Implement TPU support
+5. Train on GCP to see how good we can get on Chess
 
 ## Getting Started
 
 ### Dependencies
 
-Python
-CUDA drivers (if using Nvidia GPU)
+- Python
+- CUDA drivers (if using Nvidia GPU)
 
 ### Installing
 We recommend running and installing dependencies for this project in a [virtual environment](https://docs.python.org/3/library/venv.html).
