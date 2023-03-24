@@ -4,6 +4,7 @@ Encapsulates worker to generate training examples from self-play using neural ne
 Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 """
 
+import ray
 import logging
 import os
 import torch
