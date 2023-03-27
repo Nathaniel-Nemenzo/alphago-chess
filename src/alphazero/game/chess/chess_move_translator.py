@@ -5,6 +5,8 @@ import numpy as np
 from .utils import rotate, IndexedTuple, unpack, pack
 from game.move_translator import MoveTranslator
 
+# TODO: make this orientation agnostic
+
 class ChessMoveTranslator(MoveTranslator):
     """Implements the move encoding from [Silver et al., 2017]
     Based on: https://github.com/iamlucaswolf/gym-chess/tree/master/gym_chess/alphazero/move_encoding
