@@ -33,10 +33,10 @@ class ChessMoveTranslator(MoveTranslator):
     def encode(self, move: chess.Move, board: chess.Board) -> int:
         """Encodes a chess.Move instance into a corresponding action integer.
 
-        Encoding is always done from the perpsective of the first player.
+        Encoding is always done from the perpsective of the first player (white). If the second player (black) is to move, the move will be rotated to the perspective of the first player.
 
         Args:
-            move (tuple): Tuple of the form (move, turn). move is assumed to be in the perspective of white, so if turn is chess.BLACK, move will be rotated to the perspective of black.
+            move (tuple): Tuple of the form (move, turn). move is assumed to be in the perspective of white, so if turn is chess.BLACK, move will be rotated to the perspective of white.
 
         Raises:
             ValueError: Raise a value error if a move cannot be encoded.
@@ -44,6 +44,9 @@ class ChessMoveTranslator(MoveTranslator):
         Returns:
             int: Returns a int describing an index in a flattened (73, 8, 8) tensor, as above. Notice that the mapping from move to integer is not the same for different orientations.
         """
+
+        if board.turn == 0:
+            move = rotate(move)
 
         action = self.queenMovesTranslator.encode(move, board)
         
@@ -86,6 +89,10 @@ class ChessMoveTranslator(MoveTranslator):
         if not move:
             raise ValueError(f"{move} is not a valid action.")
         
+        # Re-orient the move if black is to move
+        if board.turn == 0:
+            move = rotate(move)
+        
         # Decide if is a pawn move
         pawn = board.piece_at(move.from_square).piece_type == chess.PAWN
 
@@ -95,7 +102,7 @@ class ChessMoveTranslator(MoveTranslator):
             to_rank = chess.square_rank(move.to_square)
 
             # We assume a promoting move if a pawn (or black OR white) has made it to the 7th or 0th rank, since pawns can't move backwards.
-            is_promoting_move = to_rank == 7 or to_rank == 0
+            is_promoting_move = (to_rank == 7 and board.turn == 1) or (to_rank == 0 and board.turn == 0)
 
             if pawn and is_promoting_move:
                 move.promotion = chess.QUEEN
@@ -287,7 +294,7 @@ class UnderpromotionsTranslator(MoveTranslator):
         # print(direction)
         promotion = self._PROMOTIONS[promotion_idx]
 
-        to_rank = from_rank + 1
+        to_rank = from_rank + 1 if from_rank == 6 else from_rank - 1
         to_file = from_file + direction
 
         ret = pack(from_rank, from_file, to_rank, to_file)
