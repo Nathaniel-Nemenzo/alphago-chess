@@ -90,7 +90,7 @@ def get_improved_policy(
     hashed_s = str(state)
 
     # run mcts
-    mcts_runs = [MCTS.remote(game, model).run(state, num_iterations) for _ in range(num_workers)]
+    mcts_runs = [MCTS.remote(game, model).run.remote(state, num_iterations) for _ in range(num_workers)]
     results = ray.get(mcts_runs)
 
     # merge
@@ -118,20 +118,18 @@ def get_improved_policy(
     return policy
 
 def get_action(
+        args: dict,
         state: any,
-        num_iterations: int,
-        num_workers: int,
         game: any,
         model: torch.nn.Module,
-        temperature: float = 1.0,
 ):
     policy = get_improved_policy(
         state,
-        num_iterations,
-        num_workers,
+        args.num_iterations_mcts,
+        args.num_workers_mcts,
         game,
         model,
-        temperature,
+        args.temperature_mcts,
     )
     if policy is None:
         return None

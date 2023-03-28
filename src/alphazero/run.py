@@ -15,7 +15,7 @@ from common import *
 
 from evaluator import Evaluator
 from replay_buffer import ReplayBuffer
-from self_play_worker import SelfPlayWorker
+from self_play import SelfPlayWorker
 from training_worker import TrainingWorker
 
 def configure_logger():
