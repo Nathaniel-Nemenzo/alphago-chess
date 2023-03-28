@@ -136,7 +136,7 @@ class Evaluator:
             # Try the actions one by one until the legal action with the highest probability is found
             action = None
             for index in sorted_indices:
-                action = self.move_translator.decode(index)
+                action =    .decode(index)
                 if self.game.checkIfValid(board, action):
                     break
 

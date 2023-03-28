@@ -1,166 +1,138 @@
-"""
-Encapsulates algorithm for Neural network-aided Monte Carlo Tree Search as proposed by [Silver et al., 2017]
-
-Based on: https://github.com/suragnair/alpha-zero-general/blob/master/MCTS.py
-
-# TODO: vectorize
-"""
-
-import logging
-import chess
 import torch
-import torch.nn as nn
+import ray
 
-from numpy import sqrt
-from game.game import Game
-from game.board_translator import BoardTranslator
-from game.move_translator import MoveTranslator
+# TASK: test this
 
-class MonteCarloTreeSearch:
-    """
-    Handles Monte Carlo tree search
-    """
-    def __init__(self, 
-                 device: torch.device,
-                 model: nn.Module, 
-                 game: Game,
-                 board_translator: BoardTranslator,
-                 move_translator: MoveTranslator,
-                 args):
-        self.device = device
-        self.model = model
-        self.args = args
+ray.init()
 
-        # Store Q values for (s, a)
-        self.Q_sa = {}
-
-        # Store number of times edge (s, a) has been taken
-        self.N_sa = {}
-
-        # Store number of times state s has been visited
-        self.N_s = {}
-
-        # Store the initial policy predicted by the model for each state
-        # This is normalized over the valid actions
-        self.P_s = {}
-
+@ray.remote
+class MCTS:
+    def __init__(
+            self,
+            game: any,
+            model: torch.nn.Module,
+            epsilon_fix: bool = True,
+    ):
         self.game = game
-        self.board_translator = board_translator
-        self.move_translator = move_translator
+        self.model = model
+        self.tree = {}
+        self.epsilon_fix = epsilon_fix
 
-    def search(self, board: chess.Board):
-        """
-        Performs one iteration of MCTS. It is recursively called until a leaf node is found. The algorithm is as follows:
+    def simulate(
+            self,
+            state: any,
+            cpuct: float = 1.0,
+    ):
+        path = []
+        current_player = self.game.get_player(state)
 
-        0. Initialize an empty search tree with s (board) as the root.
-        1. Compute the action a that maximizes u(s, a), which denotes the upper confidence bound on Q-values. From the paper, the action chosen has the maximum u(s, a) over all actions.
-            a. If state s' (by doing a) exists in the tree, recurse on s'
-            b. If s' does not exist, add the new state to the tree and initialize P(s', .) ~ P_theta(s') and v(s') ~ V_theta(s'). Then, initialize Q(s', a) and N(s', a) to 0 for all a
-            c. If we encounter a terminal state, propagate the actual reward
-        2. Propagate values upwards and update N_s, N_sa, and Q_sa
-        """
+        while True:
+            hashed_s = str(state)
+            if hashed_s in self.tree: # Not at leaf; select
+                stats = self.tree[hashed_s]
+                N, Q, P = stats[:, 1], stats[:, 2], stats[:, 3]
+                U = cpuct * P * torch.sqrt(torch.sum(N) + 1e-6 if self.epsilon_fix else 0) / (1 + N)
+                best_a_idx = torch.argmax(Q + U)
 
-        # Get unique identifier for game state
-        s = self.game.stringRepresentation(board)
+                # Pick the best action
+                best_a = stats[best_a_idx, 0]
+                template = torch.zeros_like(self.game.get_valid_actions(state))
+                template[tuple(best_a)] = 1
+                s_prime = self.game.take_action(state, template)
+                path.append((hashed_s, best_a_idx))
+                state = s_prime 
+            else:
+                break
 
-        # Get all the legal moves for the current player
-        legal_moves = torch.Tensor(self.game.getValidActions(board), device = self.device)
+        w = self.game.check_winner(state)
+        # TODO: fix this
+        if w is not None:
+            v = 1 if w is not -1 else 0
+        else: # At leaf; expand
+            valid_actions = self.game.get_valid_actions(state)
+            idx = torch.stack(torch.where(valid_actions == 1)).T
+            p, v = self.model(state)
+            stats = torch.zeros((len(valid_actions), 4))
+            stats[:, 0] = idx[:, 0]
+            stats[:, -1] = p
+            self.tree[hashed_s] = stats
 
-        # Check if the game is over and propagate the values upward
-        if self.game.getGameEnded(board):
-            return -self.game.getRewards(board)
+        winning_player = w if w is not None else current_player
 
-        # Check if this is a leaf node (not visited yet)
-        if s not in self.P_s:
-            p, v = self.model.forward(self.board_translator.encode(board))
+        # Update the visited nodes in the path
+        for hashed_s, best_a_idx in reversed(path):
+            stats = self.tree[hashed_s]
+            n, q = stats[best_a_idx, 1], stats[best_a_idx, 2]
+            adj_v = v if current_player == winning_player else -v
+            stats[best_a_idx, 2] = (n * q + adj_v) / (n + 1)
+            stats[best_a_idx, 1] += 1
+            v = adj_v
 
-            # Mask invalid values using a mask tensor
-            mask = torch.zeros(p.shape, device = self.device)
-            mask[0, legal_moves] = 1
-            p = p * mask
+    def run(
+            self,
+            state: any,
+            num_iterations: int,
+    ):
+        for _ in range(num_iterations):
+            self.simulate(state)
+        
+        return self.tree
 
-            # Renormalize policy
-            p_sum = torch.sum(p)
-            if p_sum <= 0:
-                p += mask
-            
-            p /= torch.sum(p)
+def get_improved_policy(
+        state: any,
+        num_iterations: int,
+        num_workers: int,
+        game: any,
+        model: torch.nn.Module,
+        temperature: float = 1.0,
+):
+    # prep
+    hashed_s = str(state)
 
-            self.P_s[s] = p
-            self.N_s[s] = 0
-            return -v
+    # run mcts
+    mcts_runs = [MCTS.remote(game, model).run(state, num_iterations) for _ in range(num_workers)]
+    results = ray.get(mcts_runs)
 
-        # Initialize Q values and visit counts for (s, a)
-        for a in legal_moves:
-            if (s, a) not in self.Q_sa:
-                self.Q_sa[(s, a)] = 0
-                self.N_sa[(s, a)] = 0        
-
-        cur_best_u = float('-inf')
-        best_a = -1
-
-        # Choose the action with the highest u(s, a) value
-        for a in legal_moves:
-            u = self.Q_sa[(s, a)] + self.args.cpuct * self.P_s[s][a] * (sqrt(self.N_s[s]) / (1 + self.N_sa[(s, a)]))
-            if u > cur_best_u:
-                cur_best_u = u
-                best_a = a
-
-        # (s, best_a) represents the best action to take from the current node with the current thread.
-        # We must use virtual loss to lower the probability of other threads taking this (s, a) pair.
-        # self.Q_sa[(s, best_a)] -= self.args.virtual_loss
-
-        # Decode the action to game representation
-        best_a = self.move_translator.decode(best_a)
-
-        # Recurse on the resulting state
-        next_s = self.game.getNextState(board, best_a)
-
-        # Get the value of the action from this state
-        v = self.search(next_s)
-
-        # Before updating Q values, remove the virtual loss from this action.
-        # self.Q_sa[(s, best_a)] += self.args.virtual_loss
-
-        # Update Q values and visit counts for the sampled action
-        self.Q_sa[(s, best_a)] = (self.N_sa[(s, best_a)] * self.Q_sa[(s, best_a)] + v) / (self.N_sa[(s, best_a)] + 1)
-        self.N_sa[(s, best_a)] += 1
-
-        # Update the number of times we have visited this state
-        self.N_s[s] += 1
-
-        return -v
+    # merge
+    tree = {}
+    for result in results:
+        stats = result[hashed_s]
+        if hashed_s not in tree:
+            tree[hashed_s] = stats
+        else:
+            # merge the visit counts
+            tree[hashed_s][:, 1] += stats[:, 1]
+    if len(tree) == 0:
+        return None
     
-    def improvedPolicy(self, board: chess.Board, temp = 1):
-        """
-        Performs num_mcts_simulations simulations of MCTS starting from the given state.
+    # return improved policy based on temperature
+    stats = tree[hashed_s]
+    N = stats[:, 1]
+    if temperature == 0:
+        policy = torch.zeros_like(N)
+        policy[torch.argmax(N)] = 1
+    else:
+        policy = N ** (1 / temperature)
+        policy /= torch.sum(policy)
 
-        Returns:
-            probs: a policy tensor of  where the probability of the ith action is proportional to N_sa[(s, a)] ** (1./temp)
-        """
-        
-        # Perform simulations
-        for i in range(self.args.num_mcts_simulations):
-            logging.info(f"(mcts): performing simulation {i}")
-            self.search(board)
+    return policy
 
-        s = board.fen()
-
-        # Get (s, a) counts
-        counts = torch.Tensor([self.N_sa.get((s, a), 0) for a in range(self.game.getActionSize())], device = self.device)
-
-        # If the temperature == 0, pick the move with the maximum counts
-        if temp == 0:
-            max_index = torch.argmax(counts)
-            result = torch.zeros((1, len(counts)))
-            result[0][max_index] = 1
-            return result
-        
-        # If the temperature != 0, apply the temperature over all counts
-        probs = counts ** (1. / temp)
-
-        # Normalize the probabilities
-        probs = torch.softmax(probs)
-        return probs
-        
-            
+def get_action(
+        state: any,
+        num_iterations: int,
+        num_workers: int,
+        game: any,
+        model: torch.nn.Module,
+        temperature: float = 1.0,
+):
+    policy = get_improved_policy(
+        state,
+        num_iterations,
+        num_workers,
+        game,
+        model,
+        temperature,
+    )
+    if policy is None:
+        return None
+    return torch.multinomial(policy, 1).item()
