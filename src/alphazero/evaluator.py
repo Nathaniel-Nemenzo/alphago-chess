@@ -1,17 +1,37 @@
 import torch
 import ray
 
+from game.game import Game
 from mcts import get_action
 
 # TASK: implement parallel evaluation of the model
 
 ray.init()
 
+def evaluate(
+        args: dict,
+        game: any,
+        current_model_ref: ray.ObjectRef,
+        new_model_ref: ray.ObjectRef,
+):
+    num_wins = 0
+
+    # run evaluators
+    evaluation_runs = [Evaluator.remote(
+        game,
+        args,
+    ).evaluate.remote(current_model_ref, new_model_ref, args.num_games_per_worker_evaluator) for _ in range(args.num_workers_evaluator)]
+    results = ray.get(evaluation_runs)
+    num_wins = sum(results)
+
+    # sum the number of wins
+    return (num_wins / (args.num_games_per_worker_evaluator * args.num_workers_evaluator)) >= args.evaluation_threshold
+
 @ray.remote
 class Evaluator:
     def __init(
             self,
-            game: any,
+            game: Game,
             args: dict,
     ):
         self.game = game
@@ -68,29 +88,4 @@ class Evaluator:
             # swap players
             current_player, next_player = next_player, current_player
 
-        result = self.game.get_game_result(board)
-        if result == "1-0":
-            return 1
-        elif result == "0-1":
-            return -1
-        else:
-            return 0
-
-def evaluate(
-        args: dict,
-        game: any,
-        current_model_ref: ray.ObjectRef,
-        new_model_ref: ray.ObjectRef,
-):
-    num_wins = 0
-
-    # run evaluators
-    evaluation_runs = [Evaluator.remote(
-        game,
-        args,
-    ).evaluate.remote(current_model_ref, new_model_ref, args.num_games_per_worker_evaluator) for _ in range(args.num_workers_evaluator)]
-    results = ray.get(evaluation_runs)
-    num_wins = sum(results)
-
-    # sum the number of wins
-    return (num_wins / (args.num_games_per_worker_evaluator * args.num_workers_evaluator)) >= args.evaluation_threshold
+        return self.game.get_rewards(board)

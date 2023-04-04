@@ -1,6 +1,9 @@
-import time
+import ray
 import random
 
+ray.init()
+
+@ray.remote
 class ReplayBuffer:
     def __init__(self, buffer, capacity: int):
         self.buffer = buffer

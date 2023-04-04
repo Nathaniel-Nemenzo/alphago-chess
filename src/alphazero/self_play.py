@@ -1,14 +1,9 @@
 """
 Encapsulates worker to generate training examples from self-play using neural network-aided Monte Carlo tree search.
-
-Based on: https://github.com/suragnair/alpha-zero-general/blob/master/Coach.py
 """
 
 import ray
-import logging
-import os
 import torch
-import tqdm
 
 from common import *
 from game import game
@@ -20,13 +15,14 @@ def start(
         args: dict,
         game: any,
         model_ref: ray.ObjectRef,
-        replay_buffer,
+        replay_buffer: ray.ActorRef,
 ):
     # Create self play workers and have them begin self-play
     self_play_runs = [
         SelfPlay.remote(args, game, model_ref).get_examples.remote(args.num_iterations_self_play, args.num_eps_self_play) for _ in range(args.num_workers_self_play)
     ]
     results = ray.get(self_play_runs)
+    replay_buffer = ray.get_actor(replay_buffer)
     for result in results:
         replay_buffer.extend(result)
 
@@ -63,30 +59,27 @@ class SelfPlay:
 
         while True:
             step += 1
-            
-            # Get the temperature (based on the move count)
+    
             temp = int(step < self.args.temp_threshold)
 
-            # Put first training example in examples (the reward can not yet be determined because the game is not finished.)
+            # get improved policy
             improved_policy = get_improved_policy(board, self.args.num_iterations_mcts, self.args.num_workers_mcts, self.game, self.model, temp)
 
-            # Append the improved policy to our training examples
-            # TODO:fix
-            examples.append([self.board_translator.encode(board), self.game.getCurrentPlayer(board), improved_policy.reshape(1, -1), None])
+            # add training example to examples
+            # here, we append the policy and the player who is playing
+            examples.append([self.game.get_tensor_representation_of_board(board), self.game.get_current_player(board), improved_policy.reshape(1, -1), None])
 
-            # Now, sample an action from the improved policy
-            # Switch to Tensor implementation
             a = torch.multinomial(improved_policy, num_samples = 1)
+            board = self.game.get_next_state(board, a)
 
-            # Get the next state with the action
-            board = self.game.nextState(board, a)
+            # returns 1 if white won and -1 if black won
+            r = self.game.get_rewards(board)
 
-            # Determine whether the game has ended  
-            r = self.game.getRewards(board)
-
-            # Put the reward in the training examples
-            if r != None:
-                logging.info("(self play) finished one episode of self play")
-                # Return (board as tensor, policy, outcome)
-                return [(x[0], x[2], -r * ((-1) ** (self.game.getCurrentPlayer(x[0]) != self.game.getCurrentPlayer(board)))) for x in examples]
+            # check for a draw
+            if r == 0:
+                return [(x[0], x[2], 0) for x in examples]
+            else:                
+                # if we win on this state, then the player that made the PRIOR move won. (it's not possible to make a move and lose in chess)
+                loser = self.game.get_current_player(board)
+                return [(x[0], x[2], -1 if x[1] == loser else 1) for x in examples]
     
